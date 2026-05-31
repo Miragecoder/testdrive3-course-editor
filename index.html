@@ -103,7 +103,7 @@
             pointer-events: none;
         }
 
-        #selector {
+        .select-wrap select {
             appearance: none;
             -webkit-appearance: none;
             background: rgba(255, 255, 255, 0.06);
@@ -117,21 +117,21 @@
             transition: border-color 0.15s ease, background 0.15s ease;
         }
 
-        #selector:hover {
+        .select-wrap select:hover {
             background: rgba(255, 255, 255, 0.1);
         }
 
-        #selector:focus {
+        .select-wrap select:focus {
             outline: none;
             border-color: var(--accent);
         }
 
-        #selector optgroup {
+        .select-wrap optgroup {
             color: var(--muted);
             background: #1a1e28;
         }
 
-        #selector option {
+        .select-wrap option {
             color: var(--text);
             background: #1a1e28;
         }
@@ -234,6 +234,16 @@
         </div>
     </div>
 
+    <div class="field">
+        <label for="viewmode">View</label>
+        <div class="select-wrap">
+            <select id="viewmode" name="viewmode">
+                <option value="top">Top-down</option>
+                <option value="fly">Ground level</option>
+            </select>
+        </div>
+    </div>
+<!--
     <nav class="controls">
         <span class="hint"><kbd>WASD</kbd> move</span>
         <span class="hint"><kbd>R</kbd><kbd>F</kbd> up/down</span>
@@ -241,7 +251,7 @@
         <span class="hint"><kbd>&uarr;&darr;&larr;&rarr;</kbd> look</span>
         <span class="hint"><kbd>Drag</kbd> aim</span>
     </nav>
-
+-->
     <a class="source-link" href="https://github.com/s-macke/Test-Drive-3-Maps"
        target="_blank" rel="noopener" title="View source on GitHub">
         <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="currentColor">

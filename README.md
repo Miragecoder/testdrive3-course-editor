@@ -2,9 +2,11 @@
 
 Reverse engineered and extracted maps of the DOS Game *Test Drive III: The Passion* by Accolade
 
+![Game Scenes](images/scenes.gif)
+
 ![Extracted Game Cars](images/cars_joined.png)
 
-# **[Online Viewer](https://s-macke.github.io/Test-Drive-3-Maps/)** &middot; **[Ground Fly Mode](https://s-macke.github.io/Test-Drive-3-Maps/?view=fly)**
+# **[Online Viewer](https://s-macke.github.io/Test-Drive-3-Maps/)**
 # **[Extracted Images Gallery](images/README.md)**
 
 Wavefront Object files are available in the objs directory.

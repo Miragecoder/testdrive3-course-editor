@@ -34,14 +34,19 @@ scene.renderer.domElement.addEventListener('pointercancel', stopMouseMove);
 //                       above the ground, looking horizontally across the scene
 // The map spans a 32x16 tile grid centred near world (-2048, 2048); scaled by 0.01
 // (see BuildMap) that is (-20.48, 20.48) in camera space, with +z pointing up.
-const flyMode = new URLSearchParams(window.location.search).get('view') === 'fly';
+// Current camera mode, switchable from the "View" dropdown. Initialised from the
+// `?view=fly` URL parameter so deep links still work.
+let flyMode = new URLSearchParams(window.location.search).get('view') === 'fly';
 function applyStartView(): void {
     if (flyMode) {
-        scene.camera.position.set(-20.48, 20.48, 40);
+        // x at the map centre, y at the bottom edge of the grid so the whole map
+        // stretches out ahead. The grid spans y in [-286.72, 327.68] (camera space).
+        scene.camera.position.set(-20.48, -300, 40);
         // Default camera looks down -z; rotating +90deg about x aims it along +y
         // (horizontal) with +z as the up vector.
         scene.camera.rotation.set(Math.PI / 2, 0, 0);
     } else {
+        scene.camera.up.set(0, 1, 0);
         scene.camera.position.set(0, 0, 500);
         scene.camera.rotation.set(0, 0, 0);
     }
@@ -258,6 +263,7 @@ function LoadMap(idx: number): void {
 const selector = document.getElementById("selector") as HTMLSelectElement;
 selector.addEventListener('change', function (this: HTMLSelectElement) {
     LoadMap(this.selectedIndex);
+    applyStartView();
 });
 
 selector.addEventListener('keydown', function (e: KeyboardEvent) {
@@ -265,6 +271,13 @@ selector.addEventListener('keydown', function (e: KeyboardEvent) {
         if (e.preventDefault)
             e.preventDefault();
     }
+});
+
+const viewmode = document.getElementById("viewmode") as HTMLSelectElement;
+viewmode.value = flyMode ? "fly" : "top"; // reflect the URL parameter in the dropdown
+viewmode.addEventListener('change', function (this: HTMLSelectElement) {
+    flyMode = this.value === "fly";
+    applyStartView();
 });
 
 loadFiles().then(() => {
