@@ -2,6 +2,15 @@
 
 Reverse engineered and extracted maps of the DOS Game *Test Drive III: The Passion* by Accolade
 
+As a kid, I played Test Drive III a lot. Not because of the racing, but simply to explore the world.
+
+There was so much to see, so much to discover. This project is an attempt to reconstruct those maps as accurately as possible. 
+Over the past five years, I have worked on it on and off. Now, with the help of AI, I am close to success. Apart from the occasional flying car.
+
+The 3D format itself is nothing too exotic, but it does contain a few special cases. Each tile or object is a small mesh stored as three parallel arrays of 16-bit signed X, Y, and Z vertex coordinates, followed by 8-byte polygon records containing the polygon type, vertex indices, and palette color. These are preceded by a short 4- or 8-byte header.
+
+A map is a 32×16 grid. Each cell is 2 bytes: a tile ID selecting one of those meshes, plus packed rotation and height bits.
+
 ![Game Scenes](images/scenes.gif)
 
 ![Extracted Game Cars](images/cars_joined.png)
@@ -14,7 +23,7 @@ Wavefront Object files are available in the objs directory.
 ## Development
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 20.19+ (required by Vite 7)
 
 ### Installation
 ```bash
@@ -68,6 +77,7 @@ src/
 ├── shared/      # Shared modules (extraction logic, LZW/RLE decoders)
 └── tools/       # Node.js CLI tools
     ├── export/      # OBJ exporter
+    ├── imgextract/  # Batch DAT image → PNG exporter
     ├── spriteextract/ # Scene sprite extractor
     ├── lstviewer/   # LST file viewer
     └── imgviewer/   # VGA image extractor
@@ -97,6 +107,10 @@ The `spec/` directory contains reverse-engineered documentation for Test Drive I
 |------|-------------|
 | [3d-object-format.md](spec/3d-object-format.md) | 3D polygon/vertex format used in tiles and objects |
 | [dat-file-layouts.md](spec/dat-file-layouts.md) | DAT file offset tables and resource layouts |
+| [map-format.md](spec/map-format.md) | Race-track map format: tile grid, object placement block, color table, and header parameter struct |
 | [scene-render-descriptor-bank-format.md](spec/scene-render-descriptor-bank-format.md) | Scene render descriptor bank family used by `SCENE01.DAT`, `SCENE02.DAT`, and `SCENETT1.DAT` |
 | [lst-file-format.md](spec/lst-file-format.md) | LST resource index files (scene and car variants) |
 | [image-format.md](spec/image-format.md) | VGA image compression (LZW + RLE pipeline) |
+| [palette-format.md](spec/palette-format.md) | VGA palette handling and color selection |
+| [color_remap.md](spec/color_remap.md) | Paired-pixel lookup tables for sky/horizon gradient and road remapping |
+| [references.md](spec/references.md) | External reverse-engineering references and links |
