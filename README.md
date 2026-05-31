@@ -5,7 +5,7 @@ Reverse engineered and extracted maps of the DOS Game *Test Drive III: The Passi
 As a kid, I played Test Drive III a lot. Not because of the racing, but simply to explore the world.
 
 There was so much to see, so much to discover. This project is an attempt to reconstruct those maps as accurately as possible. 
-Over the past five years, I have worked on it on and off. Now, with the help of AI, I am close to success. Apart from the occasional flying car.
+Over the past five years, I have worked on it on and off. Now, with the help of AI, I am close to success. Apart from the occasional flying car and missing sprites.
 
 The 3D format itself is nothing too exotic, but it does contain a few special cases. Each tile or object is a small mesh stored as three parallel arrays of 16-bit signed X, Y, and Z vertex coordinates, followed by 8-byte polygon records containing the polygon type, vertex indices, and palette color. These are preceded by a short 4- or 8-byte header.
 
