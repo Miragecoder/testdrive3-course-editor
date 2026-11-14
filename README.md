@@ -36,6 +36,12 @@ npm run dev
 ```
 Opens the viewer at http://localhost:5173
 
+The tilemap editor prototype is available at http://localhost:5173/editor.html
+or from the **Course editor** link in the viewer. It opens either bundled
+course, accepts a custom course DAT, shows top-down tile previews, edits tile
+cells and leg lighting, and exports a modified DAT copy. It does not yet
+reorder legs or write a complete new course package.
+
 ### Building for Production
 ```bash
 npm run build

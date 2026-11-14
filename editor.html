@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TD3 Course Editor</title>
+    <link rel="stylesheet" href="./src/browser/editor.css">
+</head>
+<body>
+    <main class="editor-shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Test Drive III · Workshop</p>
+                <h1>Course editor <span>prototype</span></h1>
+            </div>
+            <a class="back-link" href="./">Back to 3D viewer</a>
+        </header>
+
+        <section class="toolbar" aria-label="Course controls">
+            <label>
+                Source course
+                <select id="course-select">
+                    <option value="SCENE01">Pacific Coast · SCENE01</option>
+                    <option value="SCENE02">Cape Cod · SCENE02</option>
+                </select>
+            </label>
+            <label>
+                Leg
+                <select id="leg-select"></select>
+            </label>
+            <button id="open-dat" type="button">Open DAT…</button>
+            <input id="custom-dat" type="file" accept=".dat" hidden>
+            <span id="source-filename">SCENE01.DAT</span>
+            <button id="export-dat" type="button" disabled>Export edited DAT</button>
+        </section>
+
+        <div class="workspace">
+            <section class="map-panel" aria-label="Tile map">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Tile grid</h2>
+                        <p>32 × 16 cells · click a cell to inspect it</p>
+                    </div>
+                    <div class="map-toggles">
+                        <label class="paint-toggle">
+                            <input id="paint-mode" type="checkbox">
+                            Paint on click
+                        </label>
+                        <label class="paint-toggle">
+                            <input id="show-entities" type="checkbox" checked>
+                            Show entities
+                        </label>
+                    </div>
+                </div>
+                <div id="map-grid" class="map-grid" role="grid" aria-label="32 by 16 tile map"></div>
+                <div class="legend">
+                    <span><i class="swatch shared"></i> shared tiles 00–3F</span>
+                    <span><i class="swatch course"></i> course tiles 40–FF</span>
+                </div>
+                <div class="entity-legend">
+                    <span><i class="entity-key player">S</i> likely start</span>
+                    <span><i class="entity-key opponent">1</i> opponents</span>
+                    <span><i class="entity-key police">P</i> police</span>
+                    <span><i class="entity-key ai"></i> AI/behavior</span>
+                    <span><i class="entity-key static"></i> scenery</span>
+                </div>
+            </section>
+
+            <aside class="inspector">
+                <section class="panel">
+                    <h2>Selected cell</h2>
+                    <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
+                    <label>
+                        Tile ID <small>0–255</small>
+                        <input id="tile-id" type="number" min="0" max="255" value="0">
+                    </label>
+                    <label>
+                        Rotation
+                        <select id="tile-rotation">
+                            <option value="0">0°</option>
+                            <option value="1">90°</option>
+                            <option value="2">180°</option>
+                            <option value="3">270°</option>
+                        </select>
+                    </label>
+                    <label>
+                        Elevation <small>0–63</small>
+                        <input id="tile-elevation" type="number" min="0" max="63" value="0">
+                    </label>
+                    <div class="button-row">
+                        <button id="apply-cell" type="button">Apply cell</button>
+                        <button id="reset-cell" class="secondary" type="button">Reset cell</button>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>Tile palette</h2>
+                    <label>
+                        Tile bank
+                        <select id="palette-bank">
+                            <option value="shared">Shared tiles</option>
+                            <option value="course">Course tiles</option>
+                        </select>
+                    </label>
+                    <p class="subtle">Choose a cell and tile preview, then apply it. In paint mode, click map cells to place the selected tile.</p>
+                    <p class="subtle">Previews are top-down renders of the viewer's reconstructed 3D tile models.</p>
+                    <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>Lighting</h2>
+                    <p class="subtle">Updates the map mode and its matching sky-color seeds.</p>
+                    <label>
+                        Day/night
+                        <select id="map-mode">
+                            <option value="0">Night / dark</option>
+                            <option value="1">Day / light</option>
+                            <option value="unknown" disabled>Unknown</option>
+                        </select>
+                    </label>
+                    <button id="set-mode" type="button">Set leg lighting</button>
+                </section>
+
+                <section class="panel">
+                    <h2>Placed entities</h2>
+                    <p id="entity-summary" class="subtle">Loading entity records…</p>
+                    <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
+                    <p id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</p>
+                    <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Opponent route scripts</h2>
+                    <p class="subtle">These are branch-mode instructions, not drawn road paths. The simulation gets lane geometry from P.BIN; this viewer does not load that bank yet.</p>
+                    <div id="opponent-scripts" class="route-script-list"></div>
+                    <p id="route-summary" class="subtle">Loading route scripts…</p>
+                    <div id="route-comparison" class="route-comparison"></div>
+                    <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Working copy</h2>
+                    <p class="subtle">Edits stay in memory until you export. Original files are never overwritten.</p>
+                    <button id="reset-leg" class="secondary" type="button" disabled>Reset current leg</button>
+                    <button id="reset-all" class="secondary" type="button" disabled>Discard all edits</button>
+                </section>
+            </aside>
+        </div>
+
+        <footer id="status" class="status" role="status">Loading course data…</footer>
+        <p class="notice">
+            Prototype scope: edits tile cells and lighting in a course DAT. It does not yet reorder legs,
+            edit LST names, or export a complete playable SCENE package.
+        </p>
+    </main>
+    <script type="module" src="./src/browser/editor.ts"></script>
+</body>
+</html>
