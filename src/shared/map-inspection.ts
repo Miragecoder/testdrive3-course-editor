@@ -1,12 +1,9 @@
-import { MAP_HEIGHT, MAP_RESOURCE_SIZE } from './course-map';
+import { MAP_HEIGHT, MAP_RESOURCE_SIZE, MAP_WIDTH } from './course-map';
 
-const ENTITY_COUNTS = {
+export const MAP_ENTITY_LAYOUT = {
     collision: 0x0EE1,
     ai: 0x0EE3,
     lod: 0x0EE5,
-} as const;
-
-const ENTITY_FIELDS = {
     flags: 0x0EE7,
     z: 0x1027,
     x: 0x1167,
@@ -15,10 +12,10 @@ const ENTITY_FIELDS = {
     velocity: 0x1667,
     cell: 0x17A7,
     waypoint: 0x18E7,
+    fieldStride: 0x140,
+    maxEntities: 160,
 } as const;
 
-const ENTITY_FIELD_STRIDE = 0x140;
-const MAX_ENTITIES = ENTITY_FIELD_STRIDE / 2;
 const OPPONENT_SCRIPT_OFFSET = 0x05;
 const OPPONENT_SCRIPT_LENGTH = 10;
 
@@ -74,36 +71,42 @@ function validateMap(data: Uint8Array, mapOffset: number): void {
     }
 }
 
+function positiveModulo(value: number, modulus: number): number {
+    return ((value % modulus) + modulus) % modulus;
+}
+
 export function readMapEntityTable(data: Uint8Array, mapOffset: number): MapEntityTable {
     validateMap(data, mapOffset);
 
-    const collisionCount = readWord(data, mapOffset + ENTITY_COUNTS.collision, 'Collision entity count');
-    const aiCount = readWord(data, mapOffset + ENTITY_COUNTS.ai, 'AI entity count');
-    const lodCount = readWord(data, mapOffset + ENTITY_COUNTS.lod, 'LOD entity count');
-    if (collisionCount > MAX_ENTITIES || aiCount > MAX_ENTITIES || lodCount > MAX_ENTITIES) {
+    const collisionCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, 'Collision entity count');
+    const aiCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.ai, 'AI entity count');
+    const lodCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.lod, 'LOD entity count');
+    if (collisionCount > MAP_ENTITY_LAYOUT.maxEntities
+        || aiCount > MAP_ENTITY_LAYOUT.maxEntities
+        || lodCount > MAP_ENTITY_LAYOUT.maxEntities) {
         throw new Error('Map entity count exceeds the 160 available records.');
     }
 
     const entities: MapEntity[] = [];
     for (let slot = 0; slot < collisionCount; slot++) {
         const offset = slot * 2;
-        const flags = readWord(data, mapOffset + ENTITY_FIELDS.flags + offset, `Entity ${slot} flags`);
-        const x = readWord(data, mapOffset + ENTITY_FIELDS.x + offset, `Entity ${slot} X`);
-        const z = readWord(data, mapOffset + ENTITY_FIELDS.z + offset, `Entity ${slot} Z`);
+        const flags = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.flags + offset, `Entity ${slot} flags`);
+        const x = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.x + offset, `Entity ${slot} X`);
+        const z = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.z + offset, `Entity ${slot} Z`);
         entities.push({
             slot,
             flags,
             modelId: flags & 0x3F,
             x,
             z,
-            y: readWord(data, mapOffset + ENTITY_FIELDS.y + offset, `Entity ${slot} Y`),
-            heading: readWord(data, mapOffset + ENTITY_FIELDS.heading + offset, `Entity ${slot} heading`),
-            velocity: readWord(data, mapOffset + ENTITY_FIELDS.velocity + offset, `Entity ${slot} velocity`),
-            cell: readWord(data, mapOffset + ENTITY_FIELDS.cell + offset, `Entity ${slot} cell`),
-            waypoint: readWord(data, mapOffset + ENTITY_FIELDS.waypoint + offset, `Entity ${slot} waypoint`),
+            y: readWord(data, mapOffset + MAP_ENTITY_LAYOUT.y + offset, `Entity ${slot} Y`),
+            heading: readWord(data, mapOffset + MAP_ENTITY_LAYOUT.heading + offset, `Entity ${slot} heading`),
+            velocity: readWord(data, mapOffset + MAP_ENTITY_LAYOUT.velocity + offset, `Entity ${slot} velocity`),
+            cell: readWord(data, mapOffset + MAP_ENTITY_LAYOUT.cell + offset, `Entity ${slot} cell`),
+            waypoint: readWord(data, mapOffset + MAP_ENTITY_LAYOUT.waypoint + offset, `Entity ${slot} waypoint`),
             aiProcessed: slot < aiCount,
-            mapX: 0.5 + z / 1024,
-            mapY: MAP_HEIGHT - 0.5 - x / 1024,
+            mapX: positiveModulo(z / 1024, MAP_WIDTH),
+            mapY: positiveModulo(MAP_HEIGHT - x / 1024, MAP_HEIGHT),
         });
     }
 

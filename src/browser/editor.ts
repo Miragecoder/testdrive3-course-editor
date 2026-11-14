@@ -10,6 +10,7 @@ import {
     type CourseId,
     type MapCell,
 } from '@shared/course-map';
+import { invertPacificCourse } from '@shared/course-inversion';
 import {
     readMapEntityTable,
     readOpponentRouteScripts,
@@ -39,6 +40,7 @@ const status = requiredElement<HTMLDivElement>('status');
 const fileInput = requiredElement<HTMLInputElement>('custom-dat');
 const filenameLabel = requiredElement<HTMLSpanElement>('source-filename');
 const exportButton = requiredElement<HTMLButtonElement>('export-dat');
+const invertCourseButton = requiredElement<HTMLButtonElement>('invert-course');
 const resetLegButton = requiredElement<HTMLButtonElement>('reset-leg');
 const resetAllButton = requiredElement<HTMLButtonElement>('reset-all');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
@@ -60,6 +62,7 @@ let tilePreviewAtlas: HTMLCanvasElement | null = null;
 let paletteTileId: number | null = null;
 let selectedEntitySlot: number | null = null;
 let currentEntityTable: MapEntityTable | null = null;
+let inversionApplied = false;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
     const element = document.getElementById(id);
@@ -112,7 +115,9 @@ function updateStatus(): void {
     const modeLabel = mode === 0 ? 'Night/dark' : mode === 1 ? 'Day/light' : `Unknown (${mode})`;
     setStatus(`${sourceFilename} · ${modeLabel} · ${countEditedCells()} edited cells`);
     exportButton.disabled = false;
-    resetLegButton.disabled = false;
+    exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
+    invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
+    resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
 }
 
@@ -490,6 +495,7 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     sourceFilename = filename;
     originalData = bytes.slice();
     workingData = bytes.slice();
+    inversionApplied = false;
     selectedCell = null;
     paletteTileId = null;
     filenameLabel.textContent = sourceFilename;
@@ -514,13 +520,13 @@ function downloadData(): void {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${stem}_EDITED.DAT`;
+    anchor.download = inversionApplied ? 'SCENE03.DAT' : `${stem}_EDITED.DAT`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function resetCurrentLeg(): void {
-    if (!originalData || !workingData) return;
+    if (!originalData || !workingData || inversionApplied) return;
     const offset = selectedMapOffset();
     workingData.set(originalData.subarray(offset, offset + MAP_RESOURCE_SIZE), offset);
     selectedCell = null;
@@ -531,9 +537,28 @@ function resetCurrentLeg(): void {
 function resetAll(): void {
     if (!originalData) return;
     workingData = originalData.slice();
+    inversionApplied = false;
     selectedCell = null;
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     refreshTilePreviews();
+}
+
+function invertCourse(): void {
+    if (!workingData || courseId !== 'SCENE01' || inversionApplied) return;
+
+    try {
+        workingData = invertPacificCourse(workingData);
+        inversionApplied = true;
+        selectedCell = null;
+        selectedEntitySlot = null;
+        paletteTileId = null;
+        legSelect.value = '0';
+        cellDetails.textContent = 'Select a cell to inspect the reversed course.';
+        refreshTilePreviews();
+        setStatus('SCENE03.DAT experiment ready · opponent lane direction is unmodified and unverified.');
+    } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
+    }
 }
 
 courseSelect.addEventListener('change', () => {
@@ -588,6 +613,7 @@ requiredElement<HTMLButtonElement>('set-mode').addEventListener('click', () => {
     writeMapMode(workingData, selectedMapOffset(), mode);
     refreshTilePreviews();
 });
+invertCourseButton.addEventListener('click', invertCourse);
 paletteBankSelect.addEventListener('change', renderTilePalette);
 exportButton.addEventListener('click', downloadData);
 resetLegButton.addEventListener('click', resetCurrentLeg);
@@ -609,6 +635,7 @@ fileInput.addEventListener('change', async () => {
         sourceFilename = file.name;
         originalData = bytes.slice();
         workingData = bytes.slice();
+        inversionApplied = false;
         selectedCell = null;
         selectedEntitySlot = null;
         paletteTileId = null;

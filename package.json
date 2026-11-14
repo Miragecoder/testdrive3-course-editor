@@ -11,6 +11,7 @@
     "imgview": "node --import tsx src/tools/imgviewer/imgviewer.ts",
     "imgextract": "node --import tsx src/tools/imgextract/extract-all-images.ts",
     "spriteextract": "node --import tsx src/tools/spriteextract/extract-scene-sprites.ts",
+    "analyze:lanes": "node --import tsx src/tools/lane-analysis.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

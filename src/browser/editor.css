@@ -80,6 +80,8 @@ select, input[type="number"] { padding: 8px 10px; }
 #leg-select { min-width: 95px; }
 #source-filename { color: #8994a5; font: 12px ui-monospace, monospace; }
 #export-dat { margin-left: auto; background: #bf6032; border-color: #ef8c55; }
+.invert-button { width: 100%; margin-top: 8px; background: #1d4948; border-color: #327c75; }
+.notice { color: #e4b976; font-size: 11px; }
 
 .workspace {
     display: grid;

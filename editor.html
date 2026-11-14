@@ -122,6 +122,12 @@
                 </section>
 
                 <section class="panel">
+                    <h2>Reverse Pacific course</h2>
+                    <p class="subtle">Reverses the leg order, lighting, map placement, finish tile, and racer starts. AI lane direction is not reversed or validated.</p>
+                    <button id="invert-course" class="invert-button" type="button" disabled>Create SCENE03 experiment</button>
+                </section>
+
+                <section class="panel">
                     <h2>Placed entities</h2>
                     <p id="entity-summary" class="subtle">Loading entity records…</p>
                     <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
@@ -149,8 +155,7 @@
 
         <footer id="status" class="status" role="status">Loading course data…</footer>
         <p class="notice">
-            Prototype scope: edits tile cells and lighting in a course DAT. It does not yet reorder legs,
-            edit LST names, or export a complete playable SCENE package.
+            Inversion exports a DAT only; keep the existing SCENE03.LST and test on a copy. AI routes still need in-game validation.
         </p>
     </main>
     <script type="module" src="./src/browser/editor.ts"></script>
