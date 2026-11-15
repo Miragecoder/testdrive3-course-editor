@@ -59,6 +59,67 @@ export function parseLaneBank(data: Uint8Array, tileCount = LANE_TILE_COUNT): re
     });
 }
 
+export function reverseLaneBank(lanes: readonly TileLane[]): readonly TileLane[] {
+    return lanes.map((lane) => ({
+        ...lane,
+        header: (lane.header & 0x80) | lane.waypoints.length,
+        waypoints: lane.waypoints.slice().reverse().map((waypoint, index) => ({
+            ...waypoint,
+            index,
+            flags: reverseWaypointFlags(waypoint.flags),
+        })),
+    }));
+}
+
+export function serializeLaneBank(
+    lanes: readonly TileLane[],
+    tileCount: number,
+): Uint8Array {
+    if (!Number.isInteger(tileCount) || tileCount < 1 || tileCount > MAX_LANE_TILE_COUNT) {
+        throw new RangeError(`Lane tile count must be between 1 and ${MAX_LANE_TILE_COUNT}.`);
+    }
+
+    const laneByTile = new Map<number, TileLane>();
+    for (const lane of lanes) {
+        if (!Number.isInteger(lane.tileId) || lane.tileId < 0 || lane.tileId >= tileCount) {
+            throw new RangeError(`Lane tile ID must be between 0 and ${tileCount - 1}.`);
+        }
+        if (laneByTile.has(lane.tileId)) {
+            throw new Error(`Lane bank contains duplicate tile ID 0x${lane.tileId.toString(16)}.`);
+        }
+        if (lane.waypoints.length > 0x7F) {
+            throw new RangeError(`Tile 0x${lane.tileId.toString(16)} has too many waypoints.`);
+        }
+        laneByTile.set(lane.tileId, lane);
+    }
+
+    const indexSize = tileCount * 2;
+    const size = indexSize + Array.from({ length: tileCount }, (_, tileId) => {
+        const lane = laneByTile.get(tileId);
+        return 1 + (lane?.waypoints.length ?? 0) * LANE_WAYPOINT_SIZE;
+    }).reduce((total, recordSize) => total + recordSize, 0);
+    if (size > 0x10000) {
+        throw new RangeError('Serialized lane bank exceeds the 16-bit offset limit.');
+    }
+    const data = new Uint8Array(size);
+    let offset = indexSize;
+
+    for (let tileId = 0; tileId < tileCount; tileId++) {
+        const lane = laneByTile.get(tileId);
+        writeWord(data, tileId * 2, offset);
+        data[offset++] = ((lane?.header ?? 0) & 0x80) | (lane?.waypoints.length ?? 0);
+        for (const waypoint of lane?.waypoints ?? []) {
+            writeWord(data, offset, waypoint.flags);
+            writeWord(data, offset + 2, waypoint.height);
+            writeWord(data, offset + 4, waypoint.x);
+            writeWord(data, offset + 6, waypoint.z);
+            offset += LANE_WAYPOINT_SIZE;
+        }
+    }
+
+    return data;
+}
+
 export function isLaneEntry(waypoint: LaneWaypoint): boolean {
     return (waypoint.flags & 0xC0) === 0xC0;
 }
@@ -110,4 +171,27 @@ function readWord(data: Uint8Array, offset: number): number {
 function readSignedWord(data: Uint8Array, offset: number): number {
     const value = readWord(data, offset);
     return value & 0x8000 ? value - 0x10000 : value;
+}
+
+function reverseWaypointFlags(flags: number): number {
+    let reversed = flags;
+    const direction = flags & 0xC0;
+    if (direction === 0x80) reversed = (reversed & ~0xC0) | 0xC0;
+    else if (direction === 0xC0) reversed = (reversed & ~0xC0) | 0x80;
+
+    if ((flags & 0x80) === 0) {
+        reversed = (reversed & ~0x3F) | negateSignedSixBit(flags & 0x3F);
+        reversed = (reversed & ~0x3F00) | (negateSignedSixBit((flags >>> 8) & 0x3F) << 8);
+    }
+    return reversed;
+}
+
+function negateSignedSixBit(value: number): number {
+    const signedValue = value & 0x20 ? value - 0x40 : value;
+    return (-signedValue) & 0x3F;
+}
+
+function writeWord(data: Uint8Array, offset: number, value: number): void {
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >>> 8) & 0xFF;
 }

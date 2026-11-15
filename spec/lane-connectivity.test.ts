@@ -12,7 +12,9 @@ import {
     laneHeightDelta,
     neighborCell,
     parseLaneBank,
+    reverseLaneBank,
     rotatedSide,
+    serializeLaneBank,
     worldLaneHeight,
 } from '../src/shared/lane-connectivity';
 
@@ -118,3 +120,36 @@ test('parses a 127-entry private bank whose waypoint data begins after its index
     assert.equal(lanes[0x3D].offset, PRIVATE_LANE_TILE_COUNT * 2);
     assert.equal(lanes[0x3D].waypoints.length, 8);
 });
+
+test('reverses lane waypoint order, endpoint direction, and signed branch offsets', () => {
+    const lanes = parseLaneBank(createLaneBank());
+    const [reversed] = reverseLaneBank(lanes);
+
+    assert.deepEqual(reversed.waypoints, [
+        { index: 0, flags: 0xC1, height: 0xABCD, x: 2, z: 3 },
+        { index: 1, flags: 0x80, height: 0x1234, x: -1, z: -0x8000 },
+    ]);
+
+    const branch = parseLaneBank(createBranchLaneBank())[0];
+    assert.equal(reverseLaneBank([branch])[0].waypoints[0].flags, 0x803E);
+});
+
+test('serializes reversed lanes as a parseable private bank with empty missing tiles', () => {
+    const lanes = reverseLaneBank(parseLaneBank(createLaneBank()));
+    const serialized = serializeLaneBank(lanes, PRIVATE_LANE_TILE_COUNT);
+    const parsed = parseLaneBank(serialized, PRIVATE_LANE_TILE_COUNT);
+
+    assert.equal(parsed.length, PRIVATE_LANE_TILE_COUNT);
+    assert.deepEqual(parsed[0].waypoints, lanes[0].waypoints);
+    assert.equal(parsed[PRIVATE_LANE_TILE_COUNT - 1].waypoints.length, 0);
+});
+
+function createBranchLaneBank(): Uint8Array {
+    const data = new Uint8Array(LANE_INDEX_SIZE + 1 + 8);
+    for (let tileId = 0; tileId < LANE_TILE_COUNT; tileId++) {
+        writeWord(data, tileId * 2, LANE_INDEX_SIZE);
+    }
+    data[LANE_INDEX_SIZE] = 1;
+    writeWord(data, LANE_INDEX_SIZE + 1, 0x8002);
+    return data;
+}

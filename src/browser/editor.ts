@@ -23,6 +23,8 @@ import { files, loadFiles } from '@shared/files';
 import {
     PRIVATE_LANE_TILE_COUNT,
     parseLaneBank,
+    reverseLaneBank,
+    serializeLaneBank,
     type TileLane,
 } from '@shared/lane-connectivity';
 import { traceOpponentLaneRoute, type LaneRouteTrace } from '@shared/lane-routes';
@@ -53,6 +55,7 @@ const status = requiredElement<HTMLDivElement>('status');
 const fileInput = requiredElement<HTMLInputElement>('custom-dat');
 const filenameLabel = requiredElement<HTMLSpanElement>('source-filename');
 const exportButton = requiredElement<HTMLButtonElement>('export-dat');
+const exportLaneBankButton = requiredElement<HTMLButtonElement>('export-lane-bank');
 const invertCourseButton = requiredElement<HTMLButtonElement>('invert-course');
 const resetLegButton = requiredElement<HTMLButtonElement>('reset-leg');
 const resetAllButton = requiredElement<HTMLButtonElement>('reset-all');
@@ -87,6 +90,10 @@ let laneBank: readonly TileLane[] | null = null;
 let laneBankSource = 'shared SCENETTP.BIN';
 let laneBankApproximate = false;
 let inversionApplied = false;
+let invertedLaneBankData: Uint8Array | null = null;
+let inversionOriginalLaneBank: readonly TileLane[] | null = null;
+let inversionOriginalLaneBankSource = '';
+let inversionOriginalLaneBankApproximate = false;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
     const element = document.getElementById(id);
@@ -140,6 +147,7 @@ function updateStatus(): void {
     setStatus(`${sourceFilename} · ${modeLabel} · ${countEditedCells()} edited cells`);
     exportButton.disabled = false;
     exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
+    exportLaneBankButton.disabled = !inversionApplied || !invertedLaneBankData;
     invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
     resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
@@ -660,6 +668,10 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     originalData = bytes.slice();
     workingData = bytes.slice();
     inversionApplied = false;
+    invertedLaneBankData = null;
+    inversionOriginalLaneBank = null;
+    inversionOriginalLaneBankSource = '';
+    inversionOriginalLaneBankApproximate = false;
     selectedCell = null;
     paletteTileId = null;
     filenameLabel.textContent = sourceFilename;
@@ -689,6 +701,19 @@ function downloadData(): void {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function downloadLaneBank(): void {
+    if (!invertedLaneBankData) return;
+    const buffer = new ArrayBuffer(invertedLaneBankData.byteLength);
+    new Uint8Array(buffer).set(invertedLaneBankData);
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'SCENE03P.BIN';
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function resetCurrentLeg(): void {
     if (!originalData || !workingData || inversionApplied) return;
     const offset = selectedMapOffset();
@@ -701,17 +726,43 @@ function resetCurrentLeg(): void {
 function resetAll(): void {
     if (!originalData) return;
     workingData = originalData.slice();
+    restoreInversionLaneBank();
     inversionApplied = false;
     selectedCell = null;
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     refreshTilePreviews();
 }
 
+function restoreInversionLaneBank(): void {
+    if (inversionOriginalLaneBank) {
+        laneBank = inversionOriginalLaneBank;
+        laneBankSource = inversionOriginalLaneBankSource;
+        laneBankApproximate = inversionOriginalLaneBankApproximate;
+    }
+    invertedLaneBankData = null;
+    inversionOriginalLaneBank = null;
+    inversionOriginalLaneBankSource = '';
+    inversionOriginalLaneBankApproximate = false;
+}
+
 function invertCourse(): void {
     if (!workingData || courseId !== 'SCENE01' || inversionApplied) return;
 
     try {
-        workingData = invertPacificCourse(workingData);
+        if (!sharedLaneBank || !laneBank) {
+            throw new Error('The shared lane bank must be loaded before inverting Pacific.');
+        }
+        const reversedLaneBank = reverseLaneBank(sharedLaneBank);
+        const reversedLaneBankData = serializeLaneBank(reversedLaneBank, PRIVATE_LANE_TILE_COUNT);
+        const invertedData = invertPacificCourse(workingData);
+        inversionOriginalLaneBank = laneBank;
+        inversionOriginalLaneBankSource = laneBankSource;
+        inversionOriginalLaneBankApproximate = laneBankApproximate;
+        laneBank = reversedLaneBank;
+        laneBankSource = 'generated reversed SCENETTP.BIN';
+        laneBankApproximate = false;
+        invertedLaneBankData = reversedLaneBankData;
+        workingData = invertedData;
         inversionApplied = true;
         selectedCell = null;
         selectedEntitySlot = null;
@@ -719,7 +770,7 @@ function invertCourse(): void {
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
         refreshTilePreviews();
-        setStatus('SCENE03.DAT experiment ready · opponent lane direction is unmodified and unverified.');
+        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated; routes still need validation.');
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -783,6 +834,7 @@ requiredElement<HTMLButtonElement>('set-mode').addEventListener('click', () => {
 invertCourseButton.addEventListener('click', invertCourse);
 paletteBankSelect.addEventListener('change', renderTilePalette);
 exportButton.addEventListener('click', downloadData);
+exportLaneBankButton.addEventListener('click', downloadLaneBank);
 resetLegButton.addEventListener('click', resetCurrentLeg);
 resetAllButton.addEventListener('click', resetAll);
 
@@ -799,6 +851,7 @@ fileInput.addEventListener('change', async () => {
             throw new Error(`Unknown course layout: ${courseSelect.value}`);
         }
         validateCourseFile(bytes, selectedCourse);
+        restoreInversionLaneBank();
         sourceFilename = file.name;
         originalData = bytes.slice();
         workingData = bytes.slice();
