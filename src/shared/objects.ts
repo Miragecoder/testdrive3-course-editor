@@ -2,6 +2,7 @@ import * as extract from "./extract";
 import { files } from "./files";
 import { MapsCollection } from './types';
 import { PixelPair, WeatherMode } from './color';
+import { TILE_BANK_LAYOUTS } from './tile-bank-layout';
 
 export const maps: MapsCollection = {
     tiles1: [],
@@ -24,9 +25,18 @@ export function LoadObjects(colormap: PixelPair[], trailer: number[], lutMode: n
         0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0,
     ];
-    maps.tiles1 = extract.BuildObjectList("tiles1", files.scene01!, colormap, trailer, lutMode, weather, 0x0045B, 59, isobj);
-    maps.tiles2 = extract.BuildObjectList("tiles2", files.datab!, colormap, trailer, lutMode, weather, 0x2373B, 64, isobj);
-    maps.tiles3 = extract.BuildObjectList("tiles3", files.scene02!, colormap, trailer, lutMode, weather, 0x00488, 64, isobj);
+    maps.tiles1 = extract.BuildObjectList(
+        'tiles1', files.scene01!, colormap, trailer, lutMode, weather,
+        TILE_BANK_LAYOUTS.SCENE01.offset, TILE_BANK_LAYOUTS.SCENE01.count, isobj,
+    );
+    maps.tiles2 = extract.BuildObjectList(
+        'tiles2', files.datab!, colormap, trailer, lutMode, weather,
+        TILE_BANK_LAYOUTS.shared.offset, TILE_BANK_LAYOUTS.shared.count, isobj,
+    );
+    maps.tiles3 = extract.BuildObjectList(
+        'tiles3', files.scene02!, colormap, trailer, lutMode, weather,
+        TILE_BANK_LAYOUTS.SCENE02.offset, TILE_BANK_LAYOUTS.SCENE02.count, isobj,
+    );
 
     const isobj2: (number | null)[] = [
         0,    0,    0,    0,    0,    0,    0,    0,

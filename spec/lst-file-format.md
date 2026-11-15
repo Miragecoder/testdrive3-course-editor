@@ -57,8 +57,7 @@ Offset    Size      Description
 0x0398    48        Index table (24 × 16-bit values)
 0x03C8    14        Unknown
 0x03D6    250       Car names / UI strings (null-terminated, 0xAA delimited)
-0x04D0    14        Resource table header (first entry)
-0x04DE    392       Resource table entries (28 entries × 14 bytes)
+0x04D0    406       DAT archive directory (29 entries × 14 bytes)
 ```
 
 ### Map Configuration Header (0x0014 - 0x004E)
@@ -127,105 +126,34 @@ Lotus, NSX, Vector, Corvette, 962, BMW, Countach, Stealth,
 Carburetor, Lights, Tires, Rearview, Signal, Shifter, KPH, Yield, Exhaust
 ```
 
-### Resource Table (0x04D0 - 0x0665)
+### DAT Archive Directory (0x04D0 - 0x0665)
 
-Contains DAT file resource directory.
+The final `0x196` bytes of a scene LST are 29 fixed-width archive-directory
+entries. The game loads this region into its archive lookup table; each entry
+maps a filename hash to a resource stored either in a DAT archive or another
+archive file.
 
-#### Header Entry (0x04D0 - 0x04DD)
-
-14 bytes, special format:
 ```c
-struct ResourceHeader {
-    uint16_t unknown1;      // e.g., 2758
-    uint16_t unknown2;      // e.g., 54487
-    uint16_t marker;        // Always 0x0065 (101 = 'e')
-    uint32_t offset;        // Always 0x00000000 (first resource)
-    uint16_t size;          // Size of first resource (e.g., 666 = title)
-    uint16_t padding;       // Always 0
+struct ArchiveEntry {
+    uint16_t hash_h2;
+    uint16_t hash_h1;
+    uint8_t  archive;       // 'e' selects the current SCENEnn.DAT
+    uint8_t  reserved;
+    uint32_t offset;        // byte offset in the selected archive
+    uint32_t stored_size;   // file_load_far reads low_word(stored_size) - 1
 };
 ```
 
-#### Resource Entries (0x04DE onwards)
+Entries begin at `0x04D0`; there is no special header entry. `archive_open()`
+hashes the requested name and selects the matching record. For archive marker
+`'e'`, it opens the scene DAT and seeks to the stored offset. The loader reads
+one less than the low-word size recorded in the LST.
 
-28 entries, each 14 bytes:
-```c
-struct ResourceEntry {
-    uint16_t entry_size;    // Related to resource processing
-    uint16_t checksum;      // Possibly CRC or computed value
-    uint16_t marker;        // Always 0x0065 (101 = 'e')
-    uint32_t dat_offset;    // Absolute offset into DAT file
-    uint16_t size;          // Size of resource in bytes
-    uint16_t padding;       // Always 0
-};
-```
-
-#### Known Resource Types (by size)
-
-| Size   | Type           | Format  | Description                    |
-|--------|----------------|---------|--------------------------------|
-| 8504   | MAP            | Map     | Course map data (0x2137 bytes) |
-| 337    | PALETTE        | Palette | 112-color palette (0x151)      |
-| 7      | SIGNATURE      | Binary  | Developer signature "TJL 90" + 0xFF (appears 3× per map) |
-| ~65000 | TILES          | 3D      | Terrain tile graphics (64997 for SCENE01, 64709 for SCENE02) |
-| 449-459| ICON           | LZW+RLE | Menu icon graphic              |
-| ~666   | TITLE          | LZW+RLE | Title screen data (not in resource table) |
-| ~7500  | LZW_DATA       | LZW     | Compressed data (purpose varies) |
-| ~5000  | LZW_DATA       | LZW     | Compressed data (purpose varies) |
-| ~10000 | UNKNOWN        | ?       | Unknown format (not LZW)       |
-| ~2500  | UNKNOWN        | ?       | Unknown format (first code > 256) |
-| ~3500  | UNKNOWN        | ?       | Unknown format                 |
-
-**Note:** Title graphic at offset 0x000 is NOT included in the resource table. It is loaded separately, likely via a hardcoded offset.
-
-#### Resource Table Pattern
-
-The resource table follows a consistent structure for scene files:
-
-```
-[0]  ICON (LZW+RLE)      - Menu icon graphic
-[1]  TILES (3D)          - Terrain tile data
-[2]  MAP                 - Course 1
-[3]  PALETTE             - 112-color palette
-[4-5] LZW data           - Additional compressed data
-[6]  Unknown data
-[7-8] SIGNATURE ×2       - "TJL 90" developer markers
-[9-11] Various data
-[12] MAP                 - Course 2
-[13-15] SIGNATURE ×3     - "TJL 90" developer markers
-[16] MAP                 - Course 3
-[17] PALETTE
-[18-19] LZW data
-[20] MAP                 - Course 4
-[21-23] SIGNATURE ×3
-[24] MAP                 - Course 5
-[25] PALETTE
-[26-27] LZW data (images)
-```
-
-**Note:** The title graphic at DAT offset 0x000 is NOT in the resource table - it is loaded via hardcoded offset.
-
-Example resource table for SCENE01.LST:
-```
-Idx  DAT Offset   Size    Type        Format
----  ----------  ------   ---------   -------
- 0   0x00029A      449    ICON        LZW+RLE
- 1   0x00045B    64997    TILES       3D
- 2   0x010240     8504    MAP         Map
- 3   0x012378      337    PALETTE     Palette
- 4   0x0124C9     7531    LZW_DATA    LZW
- 5   0x014234     4700    LZW_DATA    LZW
- ...
- 7   0x017D67        7    SIGNATURE   "TJL 90"
- 8   0x017D6E        7    SIGNATURE   "TJL 90"
-...
-12   0x01A1CC     8504    MAP         Map (Course 2)
-13   0x01C304        7    SIGNATURE   "TJL 90"
-14   0x01C30B        7    SIGNATURE   "TJL 90"
-15   0x01C312        7    SIGNATURE   "TJL 90"
-16   0x01C319     8504    MAP         Map (Course 3)
-...
-24   0x0236B2     8504    MAP         Map (Course 5)
-```
+This explains why a loose `SCENE02P.BIN` is not required: the archived filename
+`SCENE02P.BIN` is entry 9 in `SCENE02.LST`, pointing to offset `0x1D11A` in
+`SCENE02.DAT`. Its stored size is `0x1E6F`, so the game reads `0x1E6E` bytes.
+`SCENE01.LST` selects the shared lane bank instead and does not need
+`SCENE01P.BIN`.
 
 ---
 
@@ -265,56 +193,12 @@ Offset  Value   Notes
 
 ### Key Differences from Scene LST
 
-- **No 14-byte resource entries** with the 0x65 marker
-- **No route names** or course-specific sections
-- **Different size** (675 bytes vs 1638 bytes)
-- Structure is more compact and less understood
+- Car LST files are shorter (675 bytes) and have a smaller archive directory.
+- They do not contain the scene route names, leg configuration, or scene
+  archive table.
+- Their remaining fields include car configuration and physics values.
 
 ---
-
-## Implementation Notes
-
-### Reading the Resource Table
-
-```python
-def read_scene_resource_table(lst_data):
-    """Parse resource table from scene LST file."""
-    resources = []
-
-    # Skip to resource table
-    offset = 0x4D0
-
-    # Read header entry
-    header_size = struct.unpack_from('<H', lst_data, offset + 10)[0]
-
-    # Read regular entries starting at 0x4DE
-    offset = 0x4DE
-    while offset + 14 <= len(lst_data):
-        entry_size = struct.unpack_from('<H', lst_data, offset)[0]
-        checksum = struct.unpack_from('<H', lst_data, offset + 2)[0]
-        marker = struct.unpack_from('<H', lst_data, offset + 4)[0]
-        dat_offset = struct.unpack_from('<I', lst_data, offset + 6)[0]
-        size = struct.unpack_from('<H', lst_data, offset + 10)[0]
-        padding = struct.unpack_from('<H', lst_data, offset + 12)[0]
-
-        # Validate entry
-        if marker != 0x65 or padding != 0:
-            break
-
-        resources.append({
-            'offset': dat_offset,
-            'size': size,
-            'checksum': checksum
-        })
-
-        offset += 14
-
-    return resources
-```
-
-### Marker Byte
-
-The marker value 0x65 (101 decimal) in resource entries is the ASCII code for 'e', possibly standing for "entry" or used as a validation signature.
 
 ---
 

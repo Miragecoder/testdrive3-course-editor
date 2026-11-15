@@ -161,6 +161,19 @@ select, input[type="number"] { padding: 8px 10px; }
     z-index: 4;
     pointer-events: none;
 }
+.route-overlay {
+    position: absolute;
+    inset: 5px;
+    z-index: 3;
+    width: calc(100% - 10px);
+    height: calc(100% - 10px);
+    overflow: visible;
+    pointer-events: none;
+}
+.route-overlay polyline { fill: none; stroke-width: 0.18; stroke-linecap: round; stroke-linejoin: round; }
+.route-overlay-approximate polyline { stroke-dasharray: 0.45 0.3; }
+.route-overlay .route-opponent-1 { stroke: #ffd166; }
+.route-overlay .route-opponent-2 { stroke: #ff6b6b; }
 .entity-marker {
     position: absolute;
     width: 15px;
@@ -183,6 +196,10 @@ select, input[type="number"] { padding: 8px 10px; }
 
 .legend { display: flex; gap: 20px; margin: 11px 2px 0; color: #aeb8c7; font-size: 10px; }
 .entity-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 2px 0; color: #aeb8c7; font-size: 10px; }
+.route-legend { display: flex; gap: 14px; margin: 8px 2px 0; color: #aeb8c7; font-size: 10px; }
+.route-key { display: inline-block; width: 14px; height: 2px; margin: 0 4px 3px 0; vertical-align: middle; }
+.route-key.route-opponent-1 { background: #ffd166; }
+.route-key.route-opponent-2 { background: #ff6b6b; }
 .entity-key {
     display: inline-flex;
     width: 13px;

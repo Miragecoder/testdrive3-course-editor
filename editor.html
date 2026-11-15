@@ -50,6 +50,10 @@
                             <input id="show-entities" type="checkbox" checked>
                             Show entities
                         </label>
+                        <label class="paint-toggle">
+                            <input id="show-routes" type="checkbox" checked>
+                            Show AI routes
+                        </label>
                     </div>
                 </div>
                 <div id="map-grid" class="map-grid" role="grid" aria-label="32 by 16 tile map"></div>
@@ -63,6 +67,10 @@
                     <span><i class="entity-key police">P</i> police</span>
                     <span><i class="entity-key ai"></i> AI/behavior</span>
                     <span><i class="entity-key static"></i> scenery</span>
+                </div>
+                <div class="route-legend">
+                    <span><i class="route-key route-opponent-1"></i> Opponent 1 route</span>
+                    <span><i class="route-key route-opponent-2"></i> Opponent 2 route</span>
                 </div>
             </section>
 
@@ -137,9 +145,11 @@
 
                 <section class="panel">
                     <h2>Opponent route scripts</h2>
-                    <p class="subtle">These are branch-mode instructions, not drawn road paths. The simulation gets lane geometry from P.BIN; this viewer does not load that bank yet.</p>
+                    <p class="subtle">Paths use the course’s lane bank and opponent branch scripts; the finish is detected from tile surface geometry. When a required P.BIN is unavailable, the editor draws a dashed shared-bank candidate instead of presenting it as the in-game route.</p>
                     <div id="opponent-scripts" class="route-script-list"></div>
                     <p id="route-summary" class="subtle">Loading route scripts…</p>
+                    <p id="route-source" class="subtle">Loading lane bank…</p>
+                    <div id="route-traces" class="route-script-list" aria-live="polite"></div>
                     <div id="route-comparison" class="route-comparison"></div>
                     <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
                 </section>

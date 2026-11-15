@@ -1,7 +1,9 @@
 export interface GameFiles {
     scene01: Uint8Array | null;
+    scene01Lst: Uint8Array | null;
     datab: Uint8Array | null;
     scene02: Uint8Array | null;
+    scene02Lst: Uint8Array | null;
     datac: Uint8Array | null;
     ccerv: Uint8Array | null;
     ccnsx: Uint8Array | null;
@@ -12,8 +14,10 @@ export interface GameFiles {
 
 export const files: GameFiles = {
     scene01: null,
+    scene01Lst: null,
     datab: null,
     scene02: null,
+    scene02Lst: null,
     datac: null,
     ccerv: null,
     ccnsx: null,
@@ -24,8 +28,10 @@ export const files: GameFiles = {
 
 const FILE_PATHS = {
     scene01: 'SCENE01.DAT',
+    scene01Lst: 'SCENE01.LST',
     datab: 'DATAB.DAT',
     scene02: 'SCENE02.DAT',
+    scene02Lst: 'SCENE02.LST',
     datac: 'DATAC.DAT',
     ccerv: 'CCERV.POB',
     ccnsx: 'CCNSX.POB',

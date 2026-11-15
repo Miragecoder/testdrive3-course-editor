@@ -7,6 +7,8 @@ import {
     isLaneExit,
     LANE_INDEX_SIZE,
     LANE_TILE_COUNT,
+    MAX_LANE_TILE_COUNT,
+    PRIVATE_LANE_TILE_COUNT,
     laneHeightDelta,
     neighborCell,
     parseLaneBank,
@@ -67,14 +69,52 @@ test('computes rotated side, required entry, wrapped neighbors, and world height
     assert.equal(laneHeightDelta(0xFFEE, 2), 20);
 });
 
-test('rejects truncated or out-of-index lane records', () => {
+test('rejects truncated or out-of-bank lane records', () => {
     const truncated = new Uint8Array(LANE_INDEX_SIZE + 1);
     writeWord(truncated, 0, LANE_INDEX_SIZE);
     truncated[LANE_INDEX_SIZE] = 0x81;
     assert.throws(() => parseLaneBank(truncated), /truncated/);
 
-    const overlap = new Uint8Array(LANE_INDEX_SIZE);
-    writeWord(overlap, 0, LANE_INDEX_SIZE - 1);
-    overlap[LANE_INDEX_SIZE - 1] = 0x81;
-    assert.throws(() => parseLaneBank(overlap), /overlaps the tile index/);
+    const outside = new Uint8Array(LANE_INDEX_SIZE + 1);
+    writeWord(outside, 0, outside.length);
+    assert.throws(() => parseLaneBank(outside), /outside the bank/);
+});
+
+test('parses all 128 tile index entries for a scene-specific lane bank', () => {
+    const data = new Uint8Array(MAX_LANE_TILE_COUNT * 2 + 1);
+    for (let tileId = 0; tileId < MAX_LANE_TILE_COUNT; tileId++) {
+        writeWord(data, tileId * 2, MAX_LANE_TILE_COUNT * 2);
+    }
+
+    const lanes = parseLaneBank(data, MAX_LANE_TILE_COUNT);
+    assert.equal(lanes.length, MAX_LANE_TILE_COUNT);
+    assert.equal(lanes.at(-1)?.tileId, 0x7F);
+});
+
+test('follows a lane pointer that overlaps the final tile-index word', () => {
+    const data = new Uint8Array(0x190);
+    for (let tileId = 0; tileId < MAX_LANE_TILE_COUNT; tileId++) {
+        writeWord(data, tileId * 2, 0x100);
+    }
+    writeWord(data, 0x3D * 2, 0xFE);
+    writeWord(data, 0x7F * 2, 0x188);
+    data[0x100] = 0;
+    data[0x188] = 0;
+
+    const lanes = parseLaneBank(data, MAX_LANE_TILE_COUNT);
+    assert.equal(lanes[0x3D].offset, 0xFE);
+    assert.equal(lanes[0x3D].waypoints.length, 8);
+});
+
+test('parses a 127-entry private bank whose waypoint data begins after its index', () => {
+    const data = new Uint8Array(0x140);
+    for (let tileId = 0; tileId < PRIVATE_LANE_TILE_COUNT; tileId++) {
+        writeWord(data, tileId * 2, PRIVATE_LANE_TILE_COUNT * 2);
+    }
+    data[PRIVATE_LANE_TILE_COUNT * 2] = 0x88;
+
+    const lanes = parseLaneBank(data, PRIVATE_LANE_TILE_COUNT);
+    assert.equal(lanes.length, PRIVATE_LANE_TILE_COUNT);
+    assert.equal(lanes[0x3D].offset, PRIVATE_LANE_TILE_COUNT * 2);
+    assert.equal(lanes[0x3D].waypoints.length, 8);
 });

@@ -2,6 +2,14 @@
 
 Reverse engineered and extracted maps of the DOS Game *Test Drive III: The Passion* by Accolade
 
+## Analysis-driven fork work
+
+This fork adds course inspection and editing tools, including opponent lane
+route tracing, map connectivity analysis, and experimental course inversion.
+Changes are driven by reverse-engineering sessions documented in the
+[`td3-analysis-docs` repository](https://github.com/Miragecoder/td3-analysis-docs/tree/master/sessions),
+which also records the evidence and limitations behind each experiment.
+
 As a kid, I played Test Drive III a lot. Not because of the racing, but simply to explore the world.
 
 There was so much to see, so much to discover. This project is an attempt to reconstruct those maps as accurately as possible. 

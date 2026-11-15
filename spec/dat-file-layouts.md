@@ -54,7 +54,7 @@ Same overall layout as SCENE01: 5 maps (Cape Cod #1-#5) sharing **3 sub-scene pa
 | `0x12293 - 0x12299`   | `0x0007` |          | Sig     | Developer signature "TJL 90"                                                             |
 | `0x1229A - 0x1534C`   | `0x30B2` |          | Sprites | **2D sprite bank** — 110 billboard sprites used by the sprite blitter (`sub_15153`)      |
 | `0x1534D`             | `0x7DCC` |          | 3D      | 3D scene-object bank (signs, traffic, billboards — 64 entries, used by Cape Cod maps)    |
-| `0x1D11A`             | `0x1E6E` |          |         | Unknown                                                                                  |
+| `0x1D11A - 0x1EF87`   | `0x1E6E` | SCENE02P.BIN | Lane data | Private Cape Cod waypoint bank, indexed by `SCENE02.LST`'s archive directory            |
 | `0x1EF89`             | `0x0AE0` |          |         | Unknown                                                                                  |
 | `0x1FA6A`             | `0x0DA6` |          |         | Unknown                                                                                  |
 | `0x20811`             | `0x0D7D` |          |         | Unknown                                                                                  |

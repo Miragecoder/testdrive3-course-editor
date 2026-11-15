@@ -19,7 +19,20 @@ import {
 } from '@shared/map-inspection';
 import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode } from '@shared/color';
 import { LoadObjects, maps } from '@shared/objects';
-import { loadFiles } from '@shared/files';
+import { files, loadFiles } from '@shared/files';
+import {
+    PRIVATE_LANE_TILE_COUNT,
+    parseLaneBank,
+    type TileLane,
+} from '@shared/lane-connectivity';
+import { traceOpponentLaneRoute, type LaneRouteTrace } from '@shared/lane-routes';
+import { splitWrappedRoute } from '@shared/route-overlay';
+import { findMapTileWithFaceMaterial } from '@shared/tile-bank';
+import {
+    extractSceneArchiveEntry,
+    isUnavailableSceneLaneBankResponse,
+    requiresSceneSpecificLaneBank,
+} from '@shared/scene-bank';
 import {
     createTilePreviewAtlas,
     drawTilePreview,
@@ -46,12 +59,19 @@ const resetAllButton = requiredElement<HTMLButtonElement>('reset-all');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
 const showEntitiesInput = requiredElement<HTMLInputElement>('show-entities');
+const showRoutesInput = requiredElement<HTMLInputElement>('show-routes');
 const entitySelect = requiredElement<HTMLSelectElement>('entity-select');
 const entityDetails = requiredElement<HTMLDivElement>('entity-details');
 const entitySummary = requiredElement<HTMLParagraphElement>('entity-summary');
 const opponentScripts = requiredElement<HTMLDivElement>('opponent-scripts');
 const routeSummary = requiredElement<HTMLParagraphElement>('route-summary');
+const routeSource = requiredElement<HTMLParagraphElement>('route-source');
+const routeTraces = requiredElement<HTMLDivElement>('route-traces');
 const routeComparison = requiredElement<HTMLDivElement>('route-comparison');
+
+const LANE_BANK_OFFSET = 0x3AD05;
+const LANE_BANK_SIZE = 0x1E67;
+const FINISH_FACE_MATERIAL = 0x1F;
 
 let courseId: CourseId = 'SCENE01';
 let sourceFilename = 'SCENE01.DAT';
@@ -62,6 +82,10 @@ let tilePreviewAtlas: HTMLCanvasElement | null = null;
 let paletteTileId: number | null = null;
 let selectedEntitySlot: number | null = null;
 let currentEntityTable: MapEntityTable | null = null;
+let sharedLaneBank: readonly TileLane[] | null = null;
+let laneBank: readonly TileLane[] | null = null;
+let laneBankSource = 'shared SCENETTP.BIN';
+let laneBankApproximate = false;
 let inversionApplied = false;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
@@ -233,6 +257,7 @@ function renderInspectionLayers(): void {
     renderOpponentScripts(mapOffset);
     renderRouteComparison();
     if (showEntitiesInput.checked) renderEntityOverlay();
+    renderOpponentRouteTraces(mapOffset);
 }
 
 function renderEntityList(): void {
@@ -333,6 +358,106 @@ function renderRouteComparison(): void {
 
     table.append(body);
     routeComparison.replaceChildren(table);
+}
+
+function renderOpponentRouteTraces(mapOffset: number): void {
+    grid.querySelector('.route-overlay')?.remove();
+    routeTraces.replaceChildren();
+    routeSource.textContent = laneBankApproximate
+        ? `Approximate shared-bank trace: ${laneBankSource}.`
+        : `Lane source: ${laneBankSource}.`;
+
+    if (!laneBank || !currentEntityTable || !workingData) {
+        routeTraces.textContent = 'The shared lane bank or map entities are unavailable.';
+        return;
+    }
+
+    const data = workingData;
+    const lanes = laneBank;
+    const entities = currentEntityTable.entities;
+    const sharedTileData = files.datab;
+    const sceneTileData = courseId === 'SCENE01' ? files.scene01 : files.scene02;
+    if (!sharedTileData || !sceneTileData) {
+        routeTraces.textContent = 'The tile geometry needed to locate this course’s finish is unavailable.';
+        return;
+    }
+
+    const finishTileId = findMapTileWithFaceMaterial(
+        data,
+        mapOffset,
+        sharedTileData,
+        sceneTileData,
+        courseId,
+        FINISH_FACE_MATERIAL,
+    );
+    if (finishTileId === null) {
+        routeTraces.textContent = 'No tile with the finish surface (material 0x1F) was found in this leg.';
+        return;
+    }
+
+    const scripts = readOpponentRouteScripts(data, mapOffset);
+    const opponents = entities.filter((entity) => entity.modelId === 0x02 || entity.modelId === 0x03);
+    if (opponents.length === 0) {
+        routeTraces.textContent = 'No opponent model records were found in this leg.';
+        return;
+    }
+    const traces = opponents.map((entity) => ({
+        entity,
+        trace: traceOpponentLaneRoute(
+            data,
+            mapOffset,
+            lanes,
+            entity,
+            scripts[entity.modelId - 2],
+            finishTileId,
+        ),
+    }));
+
+    for (const { entity, trace } of traces) {
+        const card = document.createElement('article');
+        card.className = 'route-script';
+        const title = document.createElement('h3');
+        title.textContent = `Opponent ${entity.modelId - 1} · ${routeTraceDescription(trace.status)}`
+            + (laneBankApproximate ? ' · candidate' : '');
+        const details = document.createElement('p');
+        details.textContent = `${trace.steps.length} waypoints · ${trace.uTurnCount} same-cell U-turn${trace.uTurnCount === 1 ? '' : 's'}`;
+        card.append(title, details);
+        routeTraces.append(card);
+    }
+
+    if (showRoutesInput.checked) {
+        const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        overlay.classList.add('route-overlay');
+        if (laneBankApproximate) overlay.classList.add('route-overlay-approximate');
+        overlay.setAttribute('viewBox', `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`);
+        overlay.setAttribute('preserveAspectRatio', 'none');
+        overlay.setAttribute('aria-label', 'Opponent lane routes');
+
+        for (const { entity, trace } of traces) {
+            if (trace.steps.length < 2) continue;
+            for (const segment of splitWrappedRoute(trace.steps, MAP_WIDTH, MAP_HEIGHT)) {
+                if (segment.length < 2) continue;
+                const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                route.classList.add(`route-opponent-${entity.modelId - 1}`);
+                route.setAttribute('points', segment.map(({ x, y }) => `${x},${y}`).join(' '));
+                overlay.append(route);
+            }
+        }
+        grid.append(overlay);
+    }
+}
+
+function routeTraceDescription(status: LaneRouteTrace['status']): string {
+    switch (status) {
+        case 'finish': return 'reaches finish';
+        case 'script-ended': return 'script ends before finish';
+        case 'route-loop': return 'route loops';
+        case 'unmatched-exit': return 'dead-end exit';
+        case 'unindexed-tile': return 'tile has no lane index';
+        case 'invalid-waypoint': return 'invalid waypoint';
+        case 'nondeterministic-branch': return 'random branch diverges';
+        case 'step-limit': return 'step limit reached';
+    }
 }
 
 function renderEntityOverlay(): void {
@@ -481,6 +606,44 @@ function applyCell(): void {
     }
 }
 
+async function loadCourseLaneBank(id: CourseId, sceneData: Uint8Array): Promise<void> {
+    const sceneList = id === 'SCENE01' ? files.scene01Lst : files.scene02Lst;
+    if (!sceneList || !sharedLaneBank) {
+        throw new Error(`${id} lane-bank configuration or shared lane data is unavailable.`);
+    }
+
+    if (!requiresSceneSpecificLaneBank(sceneList)) {
+        laneBank = sharedLaneBank;
+        laneBankSource = 'shared SCENETTP.BIN';
+        laneBankApproximate = false;
+        return;
+    }
+
+    const filename = `${id}P.BIN`;
+    const embeddedBank = extractSceneArchiveEntry(sceneList, sceneData, filename);
+    if (embeddedBank) {
+        laneBank = parseLaneBank(embeddedBank, PRIVATE_LANE_TILE_COUNT);
+        laneBankSource = `${filename} embedded in ${id}.DAT`;
+        laneBankApproximate = false;
+        return;
+    }
+
+    const response = await fetch(new URL(`base/${filename}`, window.location.href));
+    if (isUnavailableSceneLaneBankResponse(response.status, response.headers.get('content-type'))) {
+        laneBank = sharedLaneBank;
+        laneBankSource = `${filename} missing; using shared SCENETTP.BIN`;
+        laneBankApproximate = true;
+        return;
+    }
+    if (!response.ok) {
+        throw new Error(`Could not load ${filename} (${response.status}).`);
+    }
+
+    laneBank = parseLaneBank(new Uint8Array(await response.arrayBuffer()), PRIVATE_LANE_TILE_COUNT);
+    laneBankSource = filename;
+    laneBankApproximate = false;
+}
+
 async function loadBuiltInCourse(id: CourseId): Promise<void> {
     const filename = `${id}.DAT`;
     const url = new URL(`base/${filename}`, window.location.href);
@@ -491,6 +654,7 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
 
     const bytes = new Uint8Array(await response.arrayBuffer());
     validateCourseFile(bytes, id);
+    await loadCourseLaneBank(id, bytes);
     courseId = id;
     sourceFilename = filename;
     originalData = bytes.slice();
@@ -585,6 +749,9 @@ legSelect.addEventListener('change', () => {
 showEntitiesInput.addEventListener('change', () => {
     if (workingData) renderGrid();
 });
+showRoutesInput.addEventListener('change', () => {
+    if (workingData) renderGrid();
+});
 entitySelect.addEventListener('change', () => {
     selectedEntitySlot = entitySelect.value === '' ? null : Number(entitySelect.value);
     renderEntityDetails();
@@ -658,6 +825,10 @@ for (let leg = 1; leg <= 5; leg++) {
 
 const editorReady = (async () => {
     await loadFiles();
+    if (!files.datab || files.datab.length < LANE_BANK_OFFSET + LANE_BANK_SIZE) {
+        throw new Error('DATAB.DAT does not contain the shared SCENETTP lane bank.');
+    }
+    sharedLaneBank = parseLaneBank(files.datab.subarray(LANE_BANK_OFFSET, LANE_BANK_OFFSET + LANE_BANK_SIZE));
     await loadBuiltInCourse(courseId);
 })();
 

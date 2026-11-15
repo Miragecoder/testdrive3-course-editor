@@ -1,4 +1,6 @@
 export const LANE_TILE_COUNT = 0x7B;
+export const MAX_LANE_TILE_COUNT = 0x80;
+export const PRIVATE_LANE_TILE_COUNT = 0x7F;
 export const LANE_INDEX_SIZE = LANE_TILE_COUNT * 2;
 export const LANE_WAYPOINT_SIZE = 8;
 export const LANE_ELEVATION_STEP = 0x100;
@@ -21,12 +23,16 @@ export interface TileLane {
     readonly waypoints: readonly LaneWaypoint[];
 }
 
-export function parseLaneBank(data: Uint8Array): readonly TileLane[] {
-    if (data.length < LANE_INDEX_SIZE) {
-        throw new Error('Lane bank is too short to contain its 128-entry tile index.');
+export function parseLaneBank(data: Uint8Array, tileCount = LANE_TILE_COUNT): readonly TileLane[] {
+    if (!Number.isInteger(tileCount) || tileCount < 1 || tileCount > MAX_LANE_TILE_COUNT) {
+        throw new RangeError(`Lane tile count must be between 1 and ${MAX_LANE_TILE_COUNT}.`);
+    }
+    const indexSize = tileCount * 2;
+    if (data.length < indexSize) {
+        throw new Error(`Lane bank is too short to contain its ${tileCount}-entry tile index.`);
     }
 
-    return Array.from({ length: LANE_TILE_COUNT }, (_, tileId) => {
+    return Array.from({ length: tileCount }, (_, tileId) => {
         const offset = readWord(data, tileId * 2);
         if (offset >= data.length) {
             throw new Error(`Lane data for tile 0x${tileId.toString(16)} is outside the bank.`);
@@ -34,9 +40,6 @@ export function parseLaneBank(data: Uint8Array): readonly TileLane[] {
 
         const header = data[offset];
         const count = header & 0x7F;
-        if (offset < LANE_INDEX_SIZE && count !== 0) {
-            throw new Error(`Lane data for tile 0x${tileId.toString(16)} overlaps the tile index.`);
-        }
         if (offset + 1 + count * LANE_WAYPOINT_SIZE > data.length) {
             throw new Error(`Lane waypoints for tile 0x${tileId.toString(16)} are truncated.`);
         }
