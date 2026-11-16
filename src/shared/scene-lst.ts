@@ -20,15 +20,21 @@ function readCString(data: Uint8Array, offset: number, maxLen: number): string {
     return new TextDecoder('latin1').decode(data.slice(offset, end));
 }
 
+function readFixedField(data: Uint8Array, offset: number, size: number): string {
+    const bytes = data.slice(offset, offset + size);
+    let end = bytes.length;
+    while (end > 0 && (bytes[end - 1] === 0 || bytes[end - 1] === 0x20)) end--;
+    return new TextDecoder('latin1').decode(bytes.slice(0, end)).trim();
+}
 
 export function readSceneLstStrings(data: Uint8Array): SceneLstStrings {
     if (data.length !== SCENE_LST_SIZE) {
         throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
     }
-    const courseName = readCString(data, COURSE_NAME_OFFSET, COURSE_NAME_MAX + 1);
+    const courseName = readCString(data, COURSE_NAME_OFFSET, COURSE_NAME_MAX + 1).trim();
     const routeNames: string[] = [];
     for (let i = 0; i < ROUTE_NAME_COUNT; i++) {
-        routeNames.push(readCString(data, ROUTE_NAMES_OFFSET + i * ROUTE_NAME_SIZE, ROUTE_NAME_SIZE));
+        routeNames.push(readFixedField(data, ROUTE_NAMES_OFFSET + i * ROUTE_NAME_SIZE, ROUTE_NAME_SIZE));
     }
     const uiStrings: string[] = [];
     let current = '';
@@ -66,11 +72,11 @@ export function writeRouteName(data: Uint8Array, index: number, name: string): v
         throw new RangeError(`Route index must be between 0 and ${ROUTE_NAME_COUNT - 1}.`);
     }
     const bytes = new TextEncoder().encode(name);
-    if (bytes.length >= ROUTE_NAME_SIZE) {
-        throw new RangeError(`Route names must be shorter than ${ROUTE_NAME_SIZE} characters.`);
+    if (bytes.length > ROUTE_NAME_SIZE) {
+        throw new RangeError(`Route names must be at most ${ROUTE_NAME_SIZE} characters.`);
     }
     const offset = ROUTE_NAMES_OFFSET + index * ROUTE_NAME_SIZE;
-    data.fill(0, offset, offset + ROUTE_NAME_SIZE);
+    data.fill(0x20, offset, offset + ROUTE_NAME_SIZE);
     data.set(bytes, offset);
 }
 

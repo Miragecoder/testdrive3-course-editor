@@ -1434,7 +1434,7 @@ function renderLstEditor(): void {
             label.textContent = `Route ${String(i).padStart(2, '0')}${i < 20 ? ` (map ${Math.floor(i / 4) + 1}, option ${(i % 4) + 1})` : ' (placeholder)'}`;
             const input = document.createElement('input');
             input.type = 'text';
-            input.maxLength = 11;
+            input.maxLength = 12;
             input.value = strings.routeNames[i];
             input.className = 'route-editor-input';
             input.dataset.routeIndex = String(i);
