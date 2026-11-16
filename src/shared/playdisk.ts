@@ -10,6 +10,8 @@ export const SELECTED_CAR_OFFSET = 0xA6;
 export const UNKNOWN_WORD_OFFSET = 0xA8;
 export const SELECTED_SCENE_OFFSET = 0xAA;
 export const SKILL_OFFSET = 0xAC;
+export const CARS_ON_DISK_OFFSET = 0xAE;
+export const SCENES_ON_DISK_OFFSET = 0xAF;
 
 export interface PlaydiskData {
     carSlots: string[];
@@ -18,7 +20,9 @@ export interface PlaydiskData {
     unknownWord: number;
     selectedSceneSlot: number;
     skill: number;
-    tail: Uint8Array; // 5 bytes at 0xAE
+    carsOnDisk: number;
+    scenesOnDisk: number;
+    tail: Uint8Array; // 3 bytes at 0xB0
     raw: Uint8Array;
 }
 
@@ -53,12 +57,14 @@ export function createDefaultPlaydisk(): Uint8Array {
     const scenes = ['SCENE01', 'SCENE02', '???????', '???????', '???????', '???????', '???????', '???????'];
     cars.forEach((name, i) => writeFixedAscii(data, CAR_SLOT_OFFSET + i * CAR_SLOT_SIZE, CAR_SLOT_SIZE, name));
     scenes.forEach((name, i) => writeFixedAscii(data, SCENE_SLOT_OFFSET + i * SCENE_SLOT_SIZE, SCENE_SLOT_SIZE, name));
-    // Defaults: selected car 3 (CCNSX in stock sample showed 03 00), unknown 0, selected scene 0, skill 2, tail 05 02 01 01 04
+    // Defaults: selected car 3, selected scene 0, skill word 2, 5 cars on disk, 2 scenes on disk.
     data[SELECTED_CAR_OFFSET] = 0x03; data[SELECTED_CAR_OFFSET + 1] = 0x00;
     data[UNKNOWN_WORD_OFFSET] = 0x00; data[UNKNOWN_WORD_OFFSET + 1] = 0x00;
     data[SELECTED_SCENE_OFFSET] = 0x00; data[SELECTED_SCENE_OFFSET + 1] = 0x00;
     data[SKILL_OFFSET] = 0x02; data[SKILL_OFFSET + 1] = 0x00;
-    data.set([0x05, 0x02, 0x01, 0x01, 0x04], 0xAE);
+    data[CARS_ON_DISK_OFFSET] = 0x05;
+    data[SCENES_ON_DISK_OFFSET] = 0x02;
+    data.set([0x01, 0x01, 0x04], 0xB0);
     return data;
 }
 
@@ -75,7 +81,9 @@ export function readPlaydisk(data: Uint8Array): PlaydiskData {
         unknownWord: data[UNKNOWN_WORD_OFFSET] | (data[UNKNOWN_WORD_OFFSET + 1] << 8),
         selectedSceneSlot: data[SELECTED_SCENE_OFFSET] | (data[SELECTED_SCENE_OFFSET + 1] << 8),
         skill: data[SKILL_OFFSET] | (data[SKILL_OFFSET + 1] << 8),
-        tail: data.slice(0xAE, 0xB3),
+        carsOnDisk: data[CARS_ON_DISK_OFFSET],
+        scenesOnDisk: data[SCENES_ON_DISK_OFFSET],
+        tail: data.slice(0xB0, 0xB3),
         raw: data.slice(),
     };
 }
@@ -93,6 +101,10 @@ export function writePlaydisk(parsed: PlaydiskData): Uint8Array {
     setWord(UNKNOWN_WORD_OFFSET, parsed.unknownWord);
     setWord(SELECTED_SCENE_OFFSET, parsed.selectedSceneSlot);
     setWord(SKILL_OFFSET, parsed.skill);
-    data.set(parsed.tail.slice(0, 5), 0xAE);
+    if (!Number.isInteger(parsed.carsOnDisk) || parsed.carsOnDisk < 0 || parsed.carsOnDisk > 0xFF) throw new RangeError('Cars on disk must be between 0 and 255.');
+    if (!Number.isInteger(parsed.scenesOnDisk) || parsed.scenesOnDisk < 0 || parsed.scenesOnDisk > 0xFF) throw new RangeError('Scenes on disk must be between 0 and 255.');
+    data[CARS_ON_DISK_OFFSET] = parsed.carsOnDisk;
+    data[SCENES_ON_DISK_OFFSET] = parsed.scenesOnDisk;
+    data.set(parsed.tail.slice(0, 3), 0xB0);
     return data;
 }

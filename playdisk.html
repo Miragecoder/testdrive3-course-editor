@@ -58,17 +58,17 @@
 
             <section class="panel">
                 <h2>Selection & state</h2>
-                <p class="hint">These bytes control the default selection and stored skill/state values. Values are written as 16-bit little-endian words unless noted.</p>
+                <p class="hint">These bytes control default selection and stored state. <strong>Scenes/courses on disk (0xAF)</strong> is the active course count shown in the in-game course selection (set to 3 when adding SCENE03). <strong>Cars on disk (0xAE)</strong> is the active car count. Values are 16-bit little-endian words unless noted.</p>
                 <div class="tail-grid">
                     <label>Selected car slot <input id="selected-car" type="number" min="0" max="65535" value="3"></label>
                     <label>Unknown word (0xA8) <input id="unknown-word" type="number" min="0" max="65535" value="0"></label>
                     <label>Selected scene slot <input id="selected-scene" type="number" min="0" max="65535" value="0"></label>
                     <label>Skill word (0xAC) <input id="skill-word" type="number" min="0" max="65535" value="2"></label>
-                    <label>Tail byte 0xAE <input id="tail-0" type="text" value="05"></label>
-                    <label>Tail byte 0xAF <input id="tail-1" type="text" value="02"></label>
-                    <label>Tail byte 0xB0 <input id="tail-2" type="text" value="01"></label>
-                    <label>Tail byte 0xB1 <input id="tail-3" type="text" value="01"></label>
-                    <label>Tail byte 0xB2 <input id="tail-4" type="text" value="04"></label>
+                    <label>Cars on disk (0xAE) <input id="cars-on-disk" type="number" min="0" max="255" value="5"></label>
+                    <label>Scenes/courses on disk (0xAF) <input id="scenes-on-disk" type="number" min="0" max="255" value="2"></label>
+                    <label>Tail byte 0xB0 <input id="tail-0" type="text" value="01"></label>
+                    <label>Tail byte 0xB1 <input id="tail-1" type="text" value="01"></label>
+                    <label>Tail byte 0xB2 <input id="tail-2" type="text" value="04"></label>
                 </div>
             </section>
         </div>

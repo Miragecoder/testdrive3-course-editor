@@ -68,7 +68,9 @@ function renderState(): void {
     (required<HTMLInputElement>('unknown-word')).value = String(current.unknownWord);
     (required<HTMLInputElement>('selected-scene')).value = String(current.selectedSceneSlot);
     (required<HTMLInputElement>('skill-word')).value = String(current.skill);
-    for (let i = 0; i < 5; i++) {
+    (required<HTMLInputElement>('cars-on-disk')).value = String(current.carsOnDisk);
+    (required<HTMLInputElement>('scenes-on-disk')).value = String(current.scenesOnDisk);
+    for (let i = 0; i < 3; i++) {
         (required<HTMLInputElement>(`tail-${i}`)).value = current.tail[i].toString(16).padStart(2, '0').toUpperCase();
     }
 }
@@ -78,7 +80,9 @@ function collectState(): void {
     current.unknownWord = Number(required<HTMLInputElement>('unknown-word').value);
     current.selectedSceneSlot = Number(required<HTMLInputElement>('selected-scene').value);
     current.skill = Number(required<HTMLInputElement>('skill-word').value);
-    current.tail = new Uint8Array([0,1,2,3,4].map((i) => parseByte(required<HTMLInputElement>(`tail-${i}`).value, `Tail byte 0x${(0xAE + i).toString(16).toUpperCase()}`)));
+    current.carsOnDisk = Number(required<HTMLInputElement>('cars-on-disk').value);
+    current.scenesOnDisk = Number(required<HTMLInputElement>('scenes-on-disk').value);
+    current.tail = new Uint8Array([0,1,2].map((i) => parseByte(required<HTMLInputElement>(`tail-${i}`).value, `Tail byte 0x${(0xB0 + i).toString(16).toUpperCase()}`)));
 }
 
 function loadData(data: Uint8Array, name: string): void {
