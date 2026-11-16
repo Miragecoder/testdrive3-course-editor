@@ -14,20 +14,28 @@ import { invertPacificCourse } from '@shared/course-inversion';
 import {
     readMapEntityTable,
     readOpponentRouteScripts,
+    writeMapEntity,
+    writeOpponentRouteScript,
     type MapEntity,
     type MapEntityTable,
+    type WritableMapEntityFields,
 } from '@shared/map-inspection';
 import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode } from '@shared/color';
 import { LoadObjects, maps } from '@shared/objects';
 import { files, loadFiles } from '@shared/files';
 import {
     PRIVATE_LANE_TILE_COUNT,
+    isLaneEntry,
+    isLaneExit,
     parseLaneBank,
     reverseLaneBank,
+    rotatedSide,
     serializeLaneBank,
+    type CardinalSide,
     type TileLane,
 } from '@shared/lane-connectivity';
 import { traceOpponentLaneRoute, type LaneRouteTrace } from '@shared/lane-routes';
+import { pathsDivergeAndReconverge, probeOpponentPaths, type ProbedPath } from '@shared/route-probe';
 import { splitWrappedRoute } from '@shared/route-overlay';
 import { findMapTileWithFaceMaterial } from '@shared/tile-bank';
 import {
@@ -45,6 +53,8 @@ import {
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
 const legSelect = requiredElement<HTMLSelectElement>('leg-select');
 const grid = requiredElement<HTMLDivElement>('map-grid');
+const zoomInput = requiredElement<HTMLInputElement>('map-zoom');
+const zoomValue = requiredElement<HTMLSpanElement>('map-zoom-value');
 const tileIdInput = requiredElement<HTMLInputElement>('tile-id');
 const rotationInput = requiredElement<HTMLSelectElement>('tile-rotation');
 const elevationInput = requiredElement<HTMLInputElement>('tile-elevation');
@@ -62,14 +72,18 @@ const resetAllButton = requiredElement<HTMLButtonElement>('reset-all');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
 const showEntitiesInput = requiredElement<HTMLInputElement>('show-entities');
-const showRoutesInput = requiredElement<HTMLInputElement>('show-routes');
+const showRoute1Input = requiredElement<HTMLInputElement>('show-route-1');
+const showRoute2Input = requiredElement<HTMLInputElement>('show-route-2');
+const showWaypointsInput = requiredElement<HTMLInputElement>('show-waypoints');
 const entitySelect = requiredElement<HTMLSelectElement>('entity-select');
-const entityDetails = requiredElement<HTMLDivElement>('entity-details');
+const entityDetails = requiredElement<HTMLElement>('entity-details');
 const entitySummary = requiredElement<HTMLParagraphElement>('entity-summary');
 const opponentScripts = requiredElement<HTMLDivElement>('opponent-scripts');
 const routeSummary = requiredElement<HTMLParagraphElement>('route-summary');
 const routeSource = requiredElement<HTMLParagraphElement>('route-source');
 const routeTraces = requiredElement<HTMLDivElement>('route-traces');
+const probeButton = requiredElement<HTMLButtonElement>('probe-routes');
+const probeResults = requiredElement<HTMLDivElement>('probe-results');
 const routeComparison = requiredElement<HTMLDivElement>('route-comparison');
 
 const LANE_BANK_OFFSET = 0x3AD05;
@@ -81,6 +95,7 @@ let sourceFilename = 'SCENE01.DAT';
 let originalData: Uint8Array | null = null;
 let workingData: Uint8Array | null = null;
 let selectedCell: { x: number; y: number } | null = null;
+let hoveredCell: { x: number; y: number } | null = null;
 let tilePreviewAtlas: HTMLCanvasElement | null = null;
 let paletteTileId: number | null = null;
 let selectedEntitySlot: number | null = null;
@@ -245,6 +260,10 @@ function renderGrid(): void {
             button.setAttribute('aria-label', `Tile at x ${x}, y ${y}`);
             button.innerHTML = '<canvas class="tile-preview" aria-hidden="true"></canvas><span class="tile-id"></span>';
             button.addEventListener('click', () => selectCell(x, y));
+            button.addEventListener('mouseenter', () => setHoveredCell(x, y));
+            button.addEventListener('mouseleave', () => {
+                if (hoveredCell?.x === x && hoveredCell.y === y) setHoveredCell(null, null);
+            });
             grid.append(button);
             renderCell(x, y);
         }
@@ -262,10 +281,110 @@ function renderInspectionLayers(): void {
     const mapOffset = selectedMapOffset();
     currentEntityTable = readMapEntityTable(workingData, mapOffset);
     renderEntityList();
-    renderOpponentScripts(mapOffset);
-    renderRouteComparison();
+    renderOpponentScriptEditors(mapOffset);
+    refreshOpponentRouteViews(mapOffset);
+    if (showWaypointsInput.checked) renderWaypointOverlay(mapOffset);
     if (showEntitiesInput.checked) renderEntityOverlay();
-    renderOpponentRouteTraces(mapOffset);
+}
+
+function setHoveredCell(x: number | null, y: number | null): void {
+    const next = x === null || y === null ? null : { x, y };
+    if (hoveredCell?.x === next?.x && hoveredCell?.y === next?.y) return;
+    hoveredCell = next;
+    if (!showWaypointsInput.checked || !workingData) return;
+    grid.querySelector('.waypoint-overlay')?.remove();
+    renderWaypointOverlay(selectedMapOffset());
+}
+
+function renderWaypointOverlay(mapOffset: number): void {
+    if (!laneBank || !workingData) return;
+
+    const laneByTile = new Map(laneBank.map((lane) => [lane.tileId, lane]));
+    const overlay = document.createElement('div');
+    overlay.className = 'waypoint-overlay';
+    overlay.setAttribute('aria-label', 'Tile lane waypoints');
+
+    if (!hoveredCell) {
+        grid.append(overlay);
+        return;
+    }
+
+    const { x, y } = hoveredCell;
+    const cell = readMapCell(workingData, mapOffset, x, y);
+    const lane = laneByTile.get(cell.tileId);
+    if (!lane || lane.waypoints.length === 0) {
+        grid.append(overlay);
+        return;
+    }
+
+    const cellOverlay = document.createElement('div');
+    cellOverlay.className = 'waypoint-cell';
+    cellOverlay.style.left = `${(x / MAP_WIDTH) * 100}%`;
+    cellOverlay.style.top = `${(y / MAP_HEIGHT) * 100}%`;
+    cellOverlay.style.width = `${(1 / MAP_WIDTH) * 100}%`;
+    cellOverlay.style.height = `${(1 / MAP_HEIGHT) * 100}%`;
+
+    const sideBuckets: Record<CardinalSide, Array<{ waypoint: typeof lane.waypoints[number]; isExit: boolean }>> = {
+        0: [], 1: [], 2: [], 3: [],
+    };
+    const internalWaypoints: typeof lane.waypoints[number][] = [];
+
+    for (const waypoint of lane.waypoints) {
+        const isExit = isLaneExit(waypoint);
+        const isEntry = isLaneEntry(waypoint);
+        if (isExit || isEntry) {
+            const worldSide = rotatedSide(cell.rotation, waypoint.flags & 3) as CardinalSide;
+            sideBuckets[worldSide].push({ waypoint, isExit });
+        } else {
+            internalWaypoints.push(waypoint);
+        }
+    }
+
+    for (const side of [0, 1, 2, 3] as const) {
+        const items = sideBuckets[side];
+        items.forEach(({ waypoint, isExit }, index) => {
+            const marker = document.createElement('span');
+            marker.className = 'waypoint-marker';
+            marker.textContent = String(waypoint.index);
+            marker.classList.add(isExit ? 'waypoint-exit' : 'waypoint-entry');
+            marker.classList.add(`side-${side}`);
+            positionWaypointOnSide(marker, side, index, items.length);
+            marker.title = `Cell (${x},${y}) tile 0x${cell.tileId.toString(16).padStart(2, '0')} wp ${waypoint.index} ${isExit ? 'exit' : 'entry'} side ${['N', 'E', 'S', 'W'][side]} flags 0x${waypoint.flags.toString(16).padStart(4, '0')}`;
+            cellOverlay.append(marker);
+        });
+    }
+
+    internalWaypoints.forEach((waypoint, index) => {
+        const marker = document.createElement('span');
+        marker.className = 'waypoint-marker waypoint-internal';
+        marker.textContent = String(waypoint.index);
+        const cols = Math.max(1, Math.ceil(Math.sqrt(internalWaypoints.length || 1)));
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const rows = Math.max(1, Math.ceil(internalWaypoints.length / cols));
+        const left = ((col + 1) / (cols + 1)) * 100;
+        const top = 20 + ((row + 0.5) / Math.max(rows, 1)) * 60;
+        marker.style.left = `${left}%`;
+        marker.style.top = `${Math.min(88, top)}%`;
+        marker.title = `Cell (${x},${y}) tile 0x${cell.tileId.toString(16).padStart(2, '0')} wp ${waypoint.index} flags 0x${waypoint.flags.toString(16).padStart(4, '0')} x ${waypoint.x} z ${waypoint.z}`;
+        cellOverlay.append(marker);
+    });
+
+    const count = document.createElement('span');
+    count.className = 'waypoint-count';
+    count.textContent = `${lane.waypoints.length}`;
+    count.title = `Tile 0x${cell.tileId.toString(16).padStart(2, '0')} has ${lane.waypoints.length} lane waypoint(s)`;
+    cellOverlay.append(count);
+    overlay.append(cellOverlay);
+    grid.append(overlay);
+}
+
+function positionWaypointOnSide(marker: HTMLElement, side: CardinalSide, index = 0, count = 1): void {
+    const spread = count <= 1 ? 50 : 20 + (index / (count - 1)) * 60;
+    if (side === 0) { marker.style.left = `${spread}%`; marker.style.top = '0%'; }
+    else if (side === 1) { marker.style.left = '100%'; marker.style.top = `${spread}%`; }
+    else if (side === 2) { marker.style.left = `${spread}%`; marker.style.top = '100%'; }
+    else { marker.style.left = '0%'; marker.style.top = `${spread}%`; }
 }
 
 function renderEntityList(): void {
@@ -292,29 +411,121 @@ function renderEntityList(): void {
     renderEntityDetails();
 }
 
-function renderOpponentScripts(mapOffset: number): void {
+function renderOpponentScriptEditors(mapOffset: number): void {
     const scripts = readOpponentRouteScripts(activeData(), mapOffset);
     opponentScripts.replaceChildren();
 
-    for (const script of scripts) {
+    scripts.forEach((script, index) => {
         const card = document.createElement('article');
-        card.className = 'route-script';
+        card.className = 'route-script route-script-editor';
+
         const title = document.createElement('h3');
         title.textContent = `Opponent ${script.slot} · model ${script.slot + 1}`;
-        const initial = document.createElement('p');
-        initial.textContent = `Initial mode: ${routeModeDescription(script.initialMode)}`;
-        const steps = document.createElement('p');
-        steps.textContent = script.branchModes.length > 0
-            ? `Branch steps: ${script.branchModes.map(routeModeDescription).join(' → ')}`
-            : 'Branch steps: none';
-        const end = document.createElement('p');
-        end.textContent = script.terminates
-            ? 'A 0 script value removes the opponent after its scripted route.'
-            : 'No 0 terminator found in this script.';
-        card.append(title, initial, steps, end);
+
+        const initialLabel = document.createElement('label');
+        initialLabel.className = 'route-editor-label';
+        initialLabel.textContent = 'Initial mode';
+        const initialInput = document.createElement('input');
+        initialInput.type = 'number';
+        initialInput.min = '0';
+        initialInput.max = '255';
+        initialInput.step = '1';
+        initialInput.value = String(script.initialMode);
+        initialInput.className = 'route-editor-input';
+        initialInput.setAttribute('aria-label', `Opponent ${script.slot} initial mode`);
+        initialLabel.append(initialInput);
+
+        const stepsLabel = document.createElement('label');
+        stepsLabel.className = 'route-editor-label';
+        stepsLabel.textContent = 'Branch steps';
+        const stepsInput = document.createElement('input');
+        stepsInput.type = 'text';
+        stepsInput.value = formatBranchStepsInput(script);
+        stepsInput.placeholder = 'e.g. 2, 3, 2';
+        stepsInput.className = 'route-editor-input';
+        stepsInput.setAttribute('aria-label', `Opponent ${script.slot} branch steps`);
+        stepsLabel.append(stepsInput);
+
+        const hint = document.createElement('p');
+        hint.className = 'subtle';
+        hint.textContent = 'Comma-separated modes. Use 0 to end the script after earlier steps.';
+
+        const feedback = document.createElement('p');
+        feedback.className = 'route-editor-feedback';
+        feedback.setAttribute('aria-live', 'polite');
+
+        const applyScript = (): void => {
+            try {
+                const parsed = parseOpponentScriptInputs(initialInput.value, stepsInput.value);
+                writeOpponentRouteScript(activeData(), mapOffset, index as 0 | 1, parsed);
+                feedback.textContent = '';
+                feedback.classList.remove('error');
+                updateStatus();
+                refreshOpponentRouteViews(mapOffset);
+            } catch (error) {
+                feedback.textContent = error instanceof Error ? error.message : 'Could not update this script.';
+                feedback.classList.add('error');
+            }
+        };
+
+        initialInput.addEventListener('input', applyScript);
+        stepsInput.addEventListener('input', applyScript);
+
+        card.append(title, initialLabel, stepsLabel, hint, feedback);
         opponentScripts.append(card);
+    });
+}
+
+function formatBranchStepsInput(script: { branchModes: readonly number[]; terminates: boolean }): string {
+    const steps = [...script.branchModes];
+    if (script.terminates) steps.push(0);
+    return steps.join(', ');
+}
+
+function parseOpponentScriptInputs(initialValue: string, stepsValue: string): { initialMode: number; branchModes: number[]; terminates: boolean } {
+    const initialMode = parseScriptByte(initialValue, 'Initial mode');
+    const tokens = stepsValue
+        .split(/[\s,]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length > 0);
+
+    const branchModes: number[] = [];
+    let terminates = false;
+    for (const token of tokens) {
+        const value = parseScriptByte(token, 'Branch step');
+        if (value === 0) {
+            terminates = true;
+            break;
+        }
+        branchModes.push(value);
     }
 
+    if (branchModes.length > 9) {
+        throw new RangeError('Branch scripts can contain at most 9 steps before the terminator.');
+    }
+
+    return { initialMode, branchModes, terminates };
+}
+
+function parseScriptByte(value: string, label: string): number {
+    if (!/^-?\d+$/.test(value.trim())) {
+        throw new RangeError(`${label} must be an integer from 0 to 255.`);
+    }
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 255) {
+        throw new RangeError(`${label} must be an integer from 0 to 255.`);
+    }
+    return parsed;
+}
+
+function refreshOpponentRouteViews(mapOffset: number): void {
+    renderRouteComparison();
+    renderOpponentRouteTraces(mapOffset);
+    updateRouteSummary(mapOffset);
+}
+
+function updateRouteSummary(mapOffset: number): void {
+    const scripts = readOpponentRouteScripts(activeData(), mapOffset);
     const [first, second] = scripts;
     const samePlan = first.initialMode === second.initialMode
         && first.terminates === second.terminates
@@ -433,7 +644,7 @@ function renderOpponentRouteTraces(mapOffset: number): void {
         routeTraces.append(card);
     }
 
-    if (showRoutesInput.checked) {
+    if (showRoute1Input.checked || showRoute2Input.checked) {
         const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         overlay.classList.add('route-overlay');
         if (laneBankApproximate) overlay.classList.add('route-overlay-approximate');
@@ -442,16 +653,18 @@ function renderOpponentRouteTraces(mapOffset: number): void {
         overlay.setAttribute('aria-label', 'Opponent lane routes');
 
         for (const { entity, trace } of traces) {
+            const opponentIndex = entity.modelId - 1;
+            if ((opponentIndex === 1 && !showRoute1Input.checked) || (opponentIndex === 2 && !showRoute2Input.checked)) continue;
             if (trace.steps.length < 2) continue;
             for (const segment of splitWrappedRoute(trace.steps, MAP_WIDTH, MAP_HEIGHT)) {
                 if (segment.length < 2) continue;
                 const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-                route.classList.add(`route-opponent-${entity.modelId - 1}`);
+                route.classList.add(`route-opponent-${opponentIndex}`);
                 route.setAttribute('points', segment.map(({ x, y }) => `${x},${y}`).join(' '));
                 overlay.append(route);
             }
         }
-        grid.append(overlay);
+        if (overlay.childElementCount > 0) grid.append(overlay);
     }
 }
 
@@ -500,25 +713,106 @@ function renderEntityOverlay(): void {
 
 function renderEntityDetails(): void {
     if (!currentEntityTable || selectedEntitySlot === null) {
-        entityDetails.textContent = 'Select an entity or map marker to inspect its stored fields.';
+        entityDetails.classList.add('subtle');
+        entityDetails.replaceChildren(document.createTextNode('Select an entity or map marker to inspect its stored fields.'));
         return;
     }
 
     const entity = currentEntityTable.entities.find((item) => item.slot === selectedEntitySlot);
     if (!entity) {
-        entityDetails.textContent = 'The selected entity is not in this leg.';
+        entityDetails.classList.add('subtle');
+        entityDetails.replaceChildren(document.createTextNode('The selected entity is not in this leg.'));
         return;
     }
 
+    entityDetails.classList.remove('subtle');
+    entityDetails.replaceChildren();
+
     const behavior = (entity.flags >> 8) & 0x0F;
-    entityDetails.textContent = [
-        `Slot ${entity.slot} · ${entityName(entity.modelId)}`,
-        `Flags 0x${entity.flags.toString(16).padStart(4, '0')} · behavior ${behavior} · ${entity.aiProcessed ? 'in AI pass' : 'outside AI pass'}`,
-        `World position X ${entity.x}, Z ${entity.z}, Y ${entity.y}`,
-        `Map position (${entity.mapX.toFixed(2)}, ${entity.mapY.toFixed(2)})`,
-        `Rotation/state 0x${entity.heading.toString(16).padStart(4, '0')} · velocity 0x${entity.velocity.toString(16).padStart(4, '0')}`,
-        `Cell ${entity.cell} · waypoint state 0x${entity.waypoint.toString(16).padStart(4, '0')}`,
-    ].join('\n');
+    const summary = document.createElement('p');
+    summary.className = 'entity-editor-summary';
+    summary.textContent = `Slot ${entity.slot} · ${entityName(entity.modelId)} · behavior ${behavior} · ${entity.aiProcessed ? 'in AI pass' : 'outside AI pass'} · map (${entity.mapX.toFixed(2)}, ${entity.mapY.toFixed(2)})`;
+
+    const form = document.createElement('form');
+    form.className = 'entity-editor';
+    form.addEventListener('submit', (event) => event.preventDefault());
+
+    const fields: Array<{ key: keyof WritableMapEntityFields; label: string; hint?: string; hex?: boolean }> = [
+        { key: 'flags', label: 'Flags', hint: 'model id in low 6 bits', hex: true },
+        { key: 'x', label: 'World X' },
+        { key: 'z', label: 'World Z' },
+        { key: 'y', label: 'World Y' },
+        { key: 'heading', label: 'Heading/state', hex: true },
+        { key: 'velocity', label: 'Velocity', hex: true },
+        { key: 'cell', label: 'Cell' },
+        { key: 'waypoint', label: 'Waypoint state', hint: 'low 6 bits = lane waypoint index', hex: true },
+    ];
+
+    const inputs = new Map<keyof WritableMapEntityFields, HTMLInputElement>();
+    for (const field of fields) {
+        const label = document.createElement('label');
+        label.className = 'entity-editor-label';
+        label.textContent = field.label;
+        const input = document.createElement('input');
+        input.type = field.hex ? 'text' : 'number';
+        input.className = 'entity-editor-input';
+        input.value = field.hex ? `0x${entity[field.key].toString(16).padStart(4, '0')}` : String(entity[field.key]);
+        input.spellcheck = false;
+        input.setAttribute('aria-label', `Entity ${entity.slot} ${field.label}`);
+        label.append(input);
+        if (field.hint) {
+            const hint = document.createElement('small');
+            hint.textContent = field.hint;
+            label.append(hint);
+        }
+        inputs.set(field.key, input);
+        form.append(label);
+    }
+
+    const feedback = document.createElement('p');
+    feedback.className = 'route-editor-feedback';
+    feedback.setAttribute('aria-live', 'polite');
+
+    const applyEntity = (): void => {
+        try {
+            const updated: WritableMapEntityFields = {
+                flags: parseEntityWord(inputs.get('flags')!.value, 'Flags'),
+                x: parseEntityWord(inputs.get('x')!.value, 'World X'),
+                z: parseEntityWord(inputs.get('z')!.value, 'World Z'),
+                y: parseEntityWord(inputs.get('y')!.value, 'World Y'),
+                heading: parseEntityWord(inputs.get('heading')!.value, 'Heading/state'),
+                velocity: parseEntityWord(inputs.get('velocity')!.value, 'Velocity'),
+                cell: parseEntityWord(inputs.get('cell')!.value, 'Cell'),
+                waypoint: parseEntityWord(inputs.get('waypoint')!.value, 'Waypoint state'),
+            };
+            writeMapEntity(activeData(), selectedMapOffset(), entity.slot, updated);
+            feedback.textContent = '';
+            feedback.classList.remove('error');
+            renderInspectionLayers();
+            updateStatus();
+        } catch (error) {
+            feedback.textContent = error instanceof Error ? error.message : 'Could not update this entity.';
+            feedback.classList.add('error');
+        }
+    };
+
+    for (const input of inputs.values()) {
+        input.addEventListener('change', applyEntity);
+    }
+
+    form.append(feedback);
+    entityDetails.append(summary, form);
+}
+
+function parseEntityWord(value: string, label: string): number {
+    const trimmed = value.trim().toLowerCase();
+    const parsed = /^-?0x[0-9a-f]+$/.test(trimmed)
+        ? Number.parseInt(trimmed, 16)
+        : Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 0xFFFF) {
+        throw new RangeError(`${label} must be an integer from 0 to 65535 (or 0x0000–0xffff).`);
+    }
+    return parsed;
 }
 
 function selectEntity(slot: number): void {
@@ -555,14 +849,6 @@ function entityMarkerText(entity: MapEntity): string {
     if (entity.modelId === 0x03) return '2';
     if (entity.modelId === 0x11 || entity.modelId === 0x30) return 'P';
     return '.';
-}
-
-function routeModeDescription(mode: number): string {
-    if (mode === 0) return '0 (route ends)';
-    if (mode === 2) return '2 (default branch mode)';
-    if (mode === 3) return '3 (branch mode 1)';
-    if (mode === 4) return '4 (branch mode 2)';
-    return `${mode} (unclassified mode)`;
 }
 
 function selectCell(x: number, y: number): void {
@@ -797,12 +1083,28 @@ legSelect.addEventListener('change', () => {
     if (workingData) refreshTilePreviews();
 });
 
+function applyMapZoom(): void {
+    const cellSize = Number(zoomInput.value);
+    if (!Number.isFinite(cellSize)) return;
+    grid.style.setProperty('--map-cell-size', `${cellSize}px`);
+    const percent = Math.round((cellSize / 18) * 100);
+    zoomValue.textContent = `${percent}%`;
+}
+
 showEntitiesInput.addEventListener('change', () => {
     if (workingData) renderGrid();
 });
-showRoutesInput.addEventListener('change', () => {
+showRoute1Input.addEventListener('change', () => {
     if (workingData) renderGrid();
 });
+showRoute2Input.addEventListener('change', () => {
+    if (workingData) renderGrid();
+});
+showWaypointsInput.addEventListener('change', () => {
+    if (workingData) renderGrid();
+});
+zoomInput.addEventListener('input', applyMapZoom);
+applyMapZoom();
 entitySelect.addEventListener('change', () => {
     selectedEntitySlot = entitySelect.value === '' ? null : Number(entitySelect.value);
     renderEntityDetails();
@@ -831,6 +1133,7 @@ requiredElement<HTMLButtonElement>('set-mode').addEventListener('click', () => {
     writeMapMode(workingData, selectedMapOffset(), mode);
     refreshTilePreviews();
 });
+probeButton.addEventListener('click', probeAiPaths);
 invertCourseButton.addEventListener('click', invertCourse);
 paletteBankSelect.addEventListener('change', renderTilePalette);
 exportButton.addEventListener('click', downloadData);
@@ -888,6 +1191,177 @@ const editorReady = (async () => {
 editorReady.catch((error: unknown) => {
     setStatus(error instanceof Error ? error.message : 'Could not initialize the editor.', true);
 });
+
+function probeAiPaths(): void {
+    probeResults.classList.remove('subtle');
+    probeResults.replaceChildren();
+    if (!workingData || !laneBank || !currentEntityTable) {
+        probeResults.textContent = 'Map, lane bank, and entities must be loaded before generating paths.';
+        return;
+    }
+
+    const mapOffset = selectedMapOffset();
+    const sharedTileData = files.datab;
+    const sceneTileData = courseId === 'SCENE01' ? files.scene01 : files.scene02;
+    if (!sharedTileData || !sceneTileData) {
+        probeResults.textContent = 'Tile geometry needed to locate the finish is unavailable.';
+        return;
+    }
+    const finishTileId = findMapTileWithFaceMaterial(
+        workingData, mapOffset, sharedTileData, sceneTileData, courseId, FINISH_FACE_MATERIAL,
+    );
+    if (finishTileId === null) {
+        probeResults.textContent = 'No finish tile (surface material 0x1F) was found for this leg.';
+        return;
+    }
+
+    const opponents = currentEntityTable.entities.filter((entity) => entity.modelId === 0x02 || entity.modelId === 0x03)
+        .sort((a, b) => a.modelId - b.modelId);
+    if (opponents.length < 2) {
+        probeResults.textContent = 'Two opponent entities (models 0x02/0x03) are required to generate paths.';
+        return;
+    }
+
+    const probeContext = {
+        courseId,
+        leg: Number(legSelect.value) + 1,
+        mapOffset,
+        finishTile: `0x${finishTileId.toString(16)}`,
+        lane: { source: laneBankSource, approximate: laneBankApproximate, count: laneBank.length },
+        opponents: opponents.map((e) => ({ slot: e.slot, modelId: e.modelId, cell: e.cell, waypoint: `0x${e.waypoint.toString(16)}`, x: e.x, z: e.z })),
+    };
+    console.group(`[path-probe] Generate AI paths · ${courseId} leg ${probeContext.leg}`);
+    console.log('[path-probe] context ' + JSON.stringify(probeContext));
+
+    const probed = opponents.map((entity) => {
+        console.group(`[path-probe] Opponent ${entity.modelId - 1} (slot ${entity.slot})`);
+        const paths = probeOpponentPaths(workingData!, mapOffset, laneBank!, entity, finishTileId, { maxResults: 12 });
+        console.log('[path-probe] candidate paths ' + JSON.stringify(paths.map((p) => ({
+            initialMode: p.initialMode,
+            branchModes: p.branchModes,
+            steps: p.steps,
+            exitEntryLinks: p.exitEntryLinks,
+            scriptControlPoints: p.scriptControlPoints,
+            pathStart: p.pathCells.slice(0, 6),
+            pathEnd: p.pathCells.slice(-6),
+        }))));
+        console.groupEnd();
+        return { entity, paths };
+    });
+
+    if (probed.some((entry) => entry.paths.length === 0)) {
+        probeResults.textContent = 'Could not find any finish-reaching path without U-turns for one or more opponents. Try adjusting start cell/waypoint or lane setup.';
+        for (const entry of probed) {
+            const line = document.createElement('p');
+            line.textContent = `Opponent ${entry.entity.modelId - 1}: ${entry.paths.length} candidate path(s) found.`;
+            probeResults.append(line);
+        }
+        console.warn('[path-probe] no valid path ' + JSON.stringify(probed.map((p) => ({ opponent: p.entity.modelId - 1, count: p.paths.length }))));
+        console.groupEnd();
+        return;
+    }
+
+    const aPaths = probed[0].paths;
+    const bPaths = probed[1].paths;
+    let chosen: [ProbedPath, ProbedPath] | null = null;
+    let preferredPair = false;
+
+    for (const a of aPaths) {
+        const b = bPaths.find((candidate) => candidate.signature !== a.signature && pathsDivergeAndReconverge(a.pathCells, candidate.pathCells));
+        if (b) { chosen = [a, b]; preferredPair = true; break; }
+    }
+    if (!chosen) {
+        for (const a of aPaths) {
+            const b = bPaths.find((candidate) => candidate.signature !== a.signature);
+            if (b) { chosen = [a, b]; break; }
+        }
+    }
+    if (!chosen) {
+        chosen = [aPaths[0], bPaths[0]];
+    }
+
+    const singlePath = aPaths.length === 1 && bPaths.length === 1 && aPaths[0].signature === bPaths[0].signature;
+    const sameRoute = chosen[0].signature === chosen[1].signature;
+    const summary = document.createElement('p');
+    if (singlePath || sameRoute) {
+        summary.textContent = 'Only a single no-U-turn path was found for these starts (or no distinct alternative route). Both opponents can use the same branch script.';
+    } else if (preferredPair) {
+        summary.textContent = 'Generated two shortest no-U-turn paths that diverge and reconverge (shared start/finish allowed).';
+    } else {
+        summary.textContent = 'Generated two shortest no-U-turn paths with different routes/scripts.';
+    }
+    probeResults.append(summary);
+
+    const selection = {
+        singlePath,
+        sameRoute,
+        preferredDivergeReconverge: preferredPair,
+        chosen: chosen.map((p, i) => ({ opponent: probed[i].entity.modelId - 1, initialMode: p.initialMode, branchModes: p.branchModes, steps: p.steps, exitEntryLinks: p.exitEntryLinks, scriptControlPoints: p.scriptControlPoints, signature: p.signature })),
+    };
+    console.log('[path-probe] selection ' + JSON.stringify(selection));
+    console.log('[path-probe] COPY_SELECTION ' + JSON.stringify({ context: probeContext, selection }));
+    console.groupEnd();
+
+    const stats = document.createElement('p');
+    const describe = (path: ProbedPath): string =>
+        `${path.exitEntryLinks} exit/entry link(s), ${path.scriptControlPoints} scripted branch/control point(s), length ${path.steps}`;
+    stats.textContent = sameRoute
+        ? `Path: ${describe(chosen[0])}.`
+        : `Path A: ${describe(chosen[0])}. Path B: ${describe(chosen[1])}.`;
+    probeResults.append(stats);
+
+    chosen.forEach((path, index) => {
+        const entity = probed[index].entity;
+        const card = document.createElement('article');
+        card.className = 'route-script';
+        const title = document.createElement('h3');
+        title.textContent = `Suggested · Opponent ${entity.modelId - 1}`;
+        const details = document.createElement('p');
+        details.textContent = `initial ${path.initialMode}, steps [${path.branchModes.join(', ') || 'none'}], ${path.exitEntryLinks} exit/entry link(s), ${path.scriptControlPoints} scripted control point(s), length ${path.steps}`;
+        const apply = document.createElement('button');
+        apply.type = 'button';
+        apply.className = 'secondary';
+        apply.textContent = 'Apply to this opponent';
+        apply.addEventListener('click', () => {
+            writeOpponentRouteScript(activeData(), mapOffset, (entity.modelId - 2) as 0 | 1, {
+                initialMode: path.initialMode,
+                branchModes: [...path.branchModes],
+                terminates: false,
+            });
+            renderInspectionLayers();
+            updateStatus();
+            probeAiPaths();
+        });
+        card.append(title, details, apply);
+        probeResults.append(card);
+    });
+
+    if (!sameRoute) {
+        const applyBoth = document.createElement('button');
+        applyBoth.type = 'button';
+        applyBoth.textContent = 'Apply both suggestions';
+        applyBoth.addEventListener('click', () => {
+            writeOpponentRouteScript(activeData(), mapOffset, 0, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
+            writeOpponentRouteScript(activeData(), mapOffset, 1, { initialMode: chosen![1].initialMode, branchModes: [...chosen![1].branchModes], terminates: false });
+            renderInspectionLayers();
+            updateStatus();
+            probeAiPaths();
+        });
+        probeResults.append(applyBoth);
+    } else {
+        const applySame = document.createElement('button');
+        applySame.type = 'button';
+        applySame.textContent = 'Apply to both opponents';
+        applySame.addEventListener('click', () => {
+            writeOpponentRouteScript(activeData(), mapOffset, 0, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
+            writeOpponentRouteScript(activeData(), mapOffset, 1, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
+            renderInspectionLayers();
+            updateStatus();
+            probeAiPaths();
+        });
+        probeResults.append(applySame);
+    }
+}
 
 function parseCourseId(value: string): CourseId | null {
     return value in COURSE_LAYOUTS ? value as CourseId : null;

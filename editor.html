@@ -51,12 +51,27 @@
                             Show entities
                         </label>
                         <label class="paint-toggle">
-                            <input id="show-routes" type="checkbox" checked>
-                            Show AI routes
+                            <input id="show-route-1" type="checkbox" checked>
+                            Show AI route 1
+                        </label>
+                        <label class="paint-toggle">
+                            <input id="show-route-2" type="checkbox" checked>
+                            Show AI route 2
+                        </label>
+                        <label class="paint-toggle">
+                            <input id="show-waypoints" type="checkbox">
+                            Show waypoints
+                        </label>
+                        <label class="zoom-control" for="map-zoom">
+                            Zoom
+                            <input id="map-zoom" type="range" min="12" max="108" step="2" value="18">
+                            <span id="map-zoom-value">100%</span>
                         </label>
                     </div>
                 </div>
-                <div id="map-grid" class="map-grid" role="grid" aria-label="32 by 16 tile map"></div>
+                <div class="map-scroll">
+                    <div id="map-grid" class="map-grid" role="grid" aria-label="32 by 16 tile map"></div>
+                </div>
                 <div class="legend">
                     <span><i class="swatch shared"></i> shared tiles 00–3F</span>
                     <span><i class="swatch course"></i> course tiles 40–FF</span>
@@ -140,7 +155,7 @@
                     <h2>Placed entities</h2>
                     <p id="entity-summary" class="subtle">Loading entity records…</p>
                     <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
-                    <p id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</p>
+                    <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
                     <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
                 </section>
 
@@ -151,6 +166,10 @@
                     <p id="route-summary" class="subtle">Loading route scripts…</p>
                     <p id="route-source" class="subtle">Loading lane bank…</p>
                     <div id="route-traces" class="route-script-list" aria-live="polite"></div>
+                    <div class="button-row">
+                        <button id="probe-routes" type="button" class="secondary">Generate AI paths</button>
+                    </div>
+                    <div id="probe-results" class="route-script-list subtle" aria-live="polite"></div>
                     <div id="route-comparison" class="route-comparison"></div>
                     <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
                 </section>

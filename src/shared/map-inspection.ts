@@ -57,12 +57,35 @@ function readWord(data: Uint8Array, offset: number, label: string): number {
     return data[offset] | (data[offset + 1] << 8);
 }
 
+function writeWord(data: Uint8Array, offset: number, value: number, label: string): void {
+    if (offset < 0 || offset + 1 >= data.length) {
+        throw new Error(`${label} is outside the DAT file.`);
+    }
+    if (!Number.isInteger(value) || value < 0 || value > 0xFFFF) {
+        throw new RangeError(`${label} must be an integer from 0 to 65535.`);
+    }
+
+    data[offset] = value & 0xFF;
+    data[offset + 1] = value >>> 8;
+}
+
 function readByte(data: Uint8Array, offset: number, label: string): number {
     if (offset < 0 || offset >= data.length) {
         throw new Error(`${label} is outside the DAT file.`);
     }
 
     return data[offset];
+}
+
+function writeByte(data: Uint8Array, offset: number, value: number, label: string): void {
+    if (offset < 0 || offset >= data.length) {
+        throw new Error(`${label} is outside the DAT file.`);
+    }
+    if (!Number.isInteger(value) || value < 0 || value > 0xFF) {
+        throw new RangeError(`${label} must be an integer from 0 to 255.`);
+    }
+
+    data[offset] = value;
 }
 
 function validateMap(data: Uint8Array, mapOffset: number): void {
@@ -113,6 +136,41 @@ export function readMapEntityTable(data: Uint8Array, mapOffset: number): MapEnti
     return { collisionCount, aiCount, lodCount, entities };
 }
 
+export interface WritableMapEntityFields {
+    readonly flags: number;
+    readonly x: number;
+    readonly z: number;
+    readonly y: number;
+    readonly heading: number;
+    readonly velocity: number;
+    readonly cell: number;
+    readonly waypoint: number;
+}
+
+export function writeMapEntity(
+    data: Uint8Array,
+    mapOffset: number,
+    slot: number,
+    entity: WritableMapEntityFields,
+): void {
+    validateMap(data, mapOffset);
+
+    const collisionCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, 'Collision entity count');
+    if (!Number.isInteger(slot) || slot < 0 || slot >= collisionCount) {
+        throw new RangeError(`Entity slot must be between 0 and ${Math.max(collisionCount - 1, 0)}.`);
+    }
+
+    const offset = slot * 2;
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.flags + offset, entity.flags, `Entity ${slot} flags`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.z + offset, entity.z, `Entity ${slot} Z`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.x + offset, entity.x, `Entity ${slot} X`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.y + offset, entity.y, `Entity ${slot} Y`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.heading + offset, entity.heading, `Entity ${slot} heading`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.velocity + offset, entity.velocity, `Entity ${slot} velocity`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.cell + offset, entity.cell, `Entity ${slot} cell`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.waypoint + offset, entity.waypoint, `Entity ${slot} waypoint`);
+}
+
 export function readOpponentRouteScripts(data: Uint8Array, mapOffset: number): readonly OpponentRouteScript[] {
     validateMap(data, mapOffset);
 
@@ -138,4 +196,37 @@ export function readOpponentRouteScripts(data: Uint8Array, mapOffset: number): r
             terminates,
         };
     });
+}
+
+export function writeOpponentRouteScript(
+    data: Uint8Array,
+    mapOffset: number,
+    opponentIndex: 0 | 1,
+    script: Pick<OpponentRouteScript, 'initialMode' | 'branchModes' | 'terminates'>,
+): void {
+    validateMap(data, mapOffset);
+
+    const offset = mapOffset + OPPONENT_SCRIPT_OFFSET + opponentIndex * OPPONENT_SCRIPT_LENGTH;
+    writeByte(data, offset, script.initialMode, `Opponent ${opponentIndex + 1} initial route mode`);
+
+    if (script.branchModes.length > OPPONENT_SCRIPT_LENGTH - 1) {
+        throw new RangeError(`Opponent ${opponentIndex + 1} branch script can contain at most ${OPPONENT_SCRIPT_LENGTH - 1} steps.`);
+    }
+
+    for (let step = 1; step < OPPONENT_SCRIPT_LENGTH; step++) {
+        const mode = script.branchModes[step - 1];
+        if (mode === undefined) {
+            writeByte(data, offset + step, 0, `Opponent ${opponentIndex + 1} route step ${step}`);
+            continue;
+        }
+        if (mode === 0) {
+            throw new RangeError(`Opponent ${opponentIndex + 1} branch step ${step} must not be 0; use terminates to end the script.`);
+        }
+        writeByte(data, offset + step, mode, `Opponent ${opponentIndex + 1} route step ${step}`);
+    }
+
+    if (script.terminates) {
+        const terminatorStep = Math.min(script.branchModes.length + 1, OPPONENT_SCRIPT_LENGTH - 1);
+        writeByte(data, offset + terminatorStep, 0, `Opponent ${opponentIndex + 1} route terminator`);
+    }
 }
