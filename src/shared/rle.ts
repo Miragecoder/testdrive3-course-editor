@@ -54,24 +54,28 @@ export function rlePack(pixels: Uint8Array): Uint8Array {
 
     while (i < pixels.length) {
         const pixel = pixels[i];
-        let count = 1;
+        let run = 1;
 
-        // Count consecutive identical pixels (max 510 due to byte limit)
-        while (i + count < pixels.length && pixels[i + count] === pixel && count < 510) {
-            count++;
+        // Count consecutive identical pixels
+        while (i + run < pixels.length && pixels[i + run] === pixel) {
+            run++;
         }
 
-        // Encode: length = (pairs << 1) | (has_single ? 1 : 0)
-        const hasSingle = count % 2 === 1;
-        const pairs = Math.floor(count / 2);
+        // Encode in chunks of at most 255 pixels (length byte: 1 odd bit + 7 bits of pairs)
+        let remaining = run;
+        while (remaining > 0) {
+            const count = Math.min(remaining, 255);
+            const hasSingle = count % 2 === 1;
+            const pairs = Math.floor(count / 2);
+            const lengthByte = (pairs << 1) | (hasSingle ? 1 : 0);
 
-        // Length byte: pairs in upper bits, single flag in LSB
-        const lengthByte = (pairs << 1) | (hasSingle ? 1 : 0);
+            output.push(pixel);
+            output.push(lengthByte);
 
-        output.push(pixel);
-        output.push(lengthByte);
+            remaining -= count;
+        }
 
-        i += count;
+        i += run;
     }
 
     return new Uint8Array(output);

@@ -1,6 +1,6 @@
 import zlib from 'node:zlib';
-import { lzwDecode } from './lzw.js';
-import { rleUnpack } from './rle.js';
+import { lzwDecode, lzwEncode } from './lzw.js';
+import { rlePack, rleUnpack } from './rle.js';
 
 export interface Td3DecodedImage {
     readonly indexedPixels: Uint8Array;
@@ -99,6 +99,43 @@ export function decodeTd3Image(compressedData: Uint8Array, width: number): Td3De
         width,
         height,
     };
+}
+
+export function encodeTd3Image(indexedPixels: Uint8Array): Uint8Array {
+    return lzwEncode(rlePack(indexedPixels));
+}
+
+export function removePixelBase(pixels: Uint8Array, pixelBase: number): Uint8Array {
+    if (pixelBase === 0) {
+        return pixels;
+    }
+
+    const adjusted = new Uint8Array(pixels.length);
+    for (let i = 0; i < pixels.length; i++) {
+        adjusted[i] = (pixels[i] - pixelBase) & 0xFF;
+    }
+    return adjusted;
+}
+
+export function replaceTd3ImageSlot(
+    dat: Uint8Array,
+    offset: number,
+    size: number,
+    encoded: Uint8Array,
+): void {
+    if (offset < 0 || size < 0 || offset + size > dat.length) {
+        throw new Error(`Image slot 0x${offset.toString(16)} (${size} bytes) is outside the DAT file.`);
+    }
+    if (encoded.length > size) {
+        throw new Error(
+            `Compressed image is ${encoded.length} bytes but slot only allows ${size} bytes. ` +
+            `Simplify the image or reduce complexity to fit.`,
+        );
+    }
+    dat.set(encoded, offset);
+    if (encoded.length < size) {
+        dat.fill(0, offset + encoded.length, offset + size);
+    }
 }
 
 export function createDefaultPalette(): number[] {

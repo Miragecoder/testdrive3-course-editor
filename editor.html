@@ -152,8 +152,32 @@
                 <section class="panel">
                     <h2>Reverse Pacific course</h2>
                     <p class="subtle">Reverses the leg order, lighting, map placement, finish tile, racer starts, and private AI navigation bank. Route scripts and all opponent paths still need validation.</p>
+                    <label class="subtle" style="display:flex;gap:8px;align-items:center;margin:8px 0;">
+                        <input id="swap-scene03-landscapes" type="checkbox" checked>
+                        Swap leg 1 ↔ leg 5 landscapes &amp; palettes (set A↔C)
+                    </label>
                     <button id="invert-course" class="invert-button" type="button" disabled>Create SCENE03 experiment</button>
                     <button id="export-lane-bank" type="button" disabled>Export SCENE03P.BIN</button>
+                </section>
+
+                <section class="panel">
+                    <h2>Scene UI bitmaps</h2>
+                    <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger).</p>
+                    <label>
+                        Slot
+                        <select id="scene-image-slot"></select>
+                    </label>
+                    <div id="scene-image-preview-wrap" style="margin:8px 0;min-height:40px;background:#0b0f16;border:1px solid #394150;border-radius:7px;padding:6px;display:flex;align-items:center;justify-content:center;overflow:auto;">
+                        <canvas id="scene-image-preview" style="image-rendering:pixelated;max-width:100%;height:auto;"></canvas>
+                    </div>
+                    <p id="scene-image-info" class="subtle">Select a slot to preview it.</p>
+                    <div class="button-row" style="margin-top:8px;">
+                        <button id="scene-image-export" type="button" class="secondary" disabled>Export PNG</button>
+                        <button id="scene-image-replace" type="button" disabled>Replace from image…</button>
+                        <button id="scene-image-fit-replace" type="button" disabled>Fit & replace…</button>
+                        <input id="scene-image-file" type="file" accept="image/png,image/*" hidden>
+                    </div>
+                    <p id="scene-image-feedback" class="route-editor-feedback" aria-live="polite"></p>
                 </section>
 
                 <section class="panel">

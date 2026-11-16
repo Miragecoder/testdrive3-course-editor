@@ -56,6 +56,19 @@ import {
     writeUiStrings,
     createScene03LstFromScene01,
 } from '@shared/scene-lst';
+import {
+    decodeSceneImageSlot,
+    encodeSceneImageSlot,
+    getSceneImageSlots,
+    swapScene01LandscapeSetsAandC,
+    tryReplaceSceneImageSlot,
+    type SceneImageSlot,
+} from '@shared/scene-dat-images';
+import {
+    applyPaletteLayer,
+    createDefaultPalette,
+    replaceTd3ImageSlot,
+} from '@shared/td3-image';
 
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
 const legSelect = requiredElement<HTMLSelectElement>('leg-select');
@@ -82,8 +95,17 @@ const applyLstButton = requiredElement<HTMLButtonElement>('apply-lst');
 const resetLstButton = requiredElement<HTMLButtonElement>('reset-lst');
 const exportLaneBankButton = requiredElement<HTMLButtonElement>('export-lane-bank');
 const invertCourseButton = requiredElement<HTMLButtonElement>('invert-course');
+const swapScene03LandscapesInput = requiredElement<HTMLInputElement>('swap-scene03-landscapes');
 const resetLegButton = requiredElement<HTMLButtonElement>('reset-leg');
 const resetAllButton = requiredElement<HTMLButtonElement>('reset-all');
+const sceneImageSlotSelect = requiredElement<HTMLSelectElement>('scene-image-slot');
+const sceneImagePreview = requiredElement<HTMLCanvasElement>('scene-image-preview');
+const sceneImageInfo = requiredElement<HTMLParagraphElement>('scene-image-info');
+const sceneImageExportButton = requiredElement<HTMLButtonElement>('scene-image-export');
+const sceneImageReplaceButton = requiredElement<HTMLButtonElement>('scene-image-replace');
+const sceneImageFitReplaceButton = requiredElement<HTMLButtonElement>('scene-image-fit-replace');
+const sceneImageFileInput = requiredElement<HTMLInputElement>('scene-image-file');
+const sceneImageFeedback = requiredElement<HTMLParagraphElement>('scene-image-feedback');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
 const showEntitiesInput = requiredElement<HTMLInputElement>('show-entities');
@@ -127,6 +149,7 @@ let invertedLaneBankData: Uint8Array | null = null;
 let inversionOriginalLaneBank: readonly TileLane[] | null = null;
 let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
+let pendingSceneImageReplaceAutoFit = false;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
     const element = document.getElementById(id);
@@ -134,6 +157,310 @@ function requiredElement<T extends HTMLElement>(id: string): T {
         throw new Error(`Missing editor element #${id}.`);
     }
     return element as T;
+}
+
+function getSceneImageCourseId(): 'SCENE01' | 'SCENE02' | null {
+    if (courseId === 'SCENE01' || courseId === 'SCENE02') return courseId;
+    return null;
+}
+
+function sceneImagePaletteForSlot(dat: Uint8Array, slot: SceneImageSlot): number[] {
+    const palette = createDefaultPalette();
+    if (slot.paletteOffset !== undefined) {
+        // Scene landscape palettes are 112 colors loaded into indices 16..127 (low bank).
+        applyPaletteLayer(palette, dat, slot.paletteOffset, 16, 112);
+    }
+    // Title/icon slots use default VGA palette as-is.
+    return palette;
+}
+
+function sceneImageAllowedIndices(slot: SceneImageSlot): number[] | null {
+    if (slot.paletteOffset !== undefined) {
+        const indices: number[] = [];
+        for (let i = 16; i < 128; i++) indices.push(i);
+        return indices;
+    }
+    return null; // all indices allowed
+}
+
+function nearestPaletteIndex(r: number, g: number, b: number, palette: number[], allowed?: number[] | null): number {
+    let best = 0;
+    let bestDist = Infinity;
+    const range = allowed ?? Array.from({ length: 256 }, (_, i) => i);
+    for (const i of range) {
+        const p = i * 3;
+        const dr = r - (palette[p] ?? 0);
+        const dg = g - (palette[p + 1] ?? 0);
+        const db = b - (palette[p + 2] ?? 0);
+        const dist = dr * dr + dg * dg + db * db;
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+            if (dist === 0) break;
+        }
+    }
+    return best;
+}
+
+function renderSceneImagePreview(slot: SceneImageSlot): void {
+    sceneImageFeedback.textContent = '';
+    sceneImageFeedback.classList.remove('error');
+    if (!workingData) {
+        sceneImageInfo.textContent = 'Open a course DAT file first.';
+        sceneImageExportButton.disabled = true;
+        sceneImageReplaceButton.disabled = true;
+        const ctx = sceneImagePreview.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, sceneImagePreview.width, sceneImagePreview.height);
+        return;
+    }
+
+    try {
+        const decoded = decodeSceneImageSlot(workingData, slot);
+        const palette = sceneImagePaletteForSlot(workingData, slot);
+        const width = slot.width;
+        const height = slot.height ?? Math.floor(decoded.length / width);
+        if (decoded.length !== width * height) {
+            throw new Error(`Decoded image is ${decoded.length} pixels, expected ${width * height}.`);
+        }
+
+        sceneImagePreview.width = width;
+        sceneImagePreview.height = height;
+        const ctx = sceneImagePreview.getContext('2d');
+        if (!ctx) throw new Error('Could not create canvas context for image preview.');
+        const imageData = ctx.createImageData(width, height);
+        for (let y = 0; y < height; y++) {
+            const srcY = height - 1 - y; // TD3 images stored bottom-to-top
+            for (let x = 0; x < width; x++) {
+                const idx = decoded[srcY * width + x] ?? 0;
+                const p = idx * 3;
+                const di = (y * width + x) * 4;
+                imageData.data[di + 0] = palette[p] ?? 0;
+                imageData.data[di + 1] = palette[p + 1] ?? 0;
+                imageData.data[di + 2] = palette[p + 2] ?? 0;
+                imageData.data[di + 3] = 255;
+            }
+        }
+        ctx.putImageData(imageData, 0, 0);
+
+        const slotCourse = getSceneImageCourseId();
+        const compressedSize = workingData ? slot.size : 0;
+        sceneImageInfo.textContent = `${slotCourse ?? courseId} · ${slot.description} · ${width}×${height} · slot 0x${slot.offset.toString(16)} (${slot.size} bytes)`;
+        void compressedSize;
+        sceneImageExportButton.disabled = false;
+        sceneImageReplaceButton.disabled = !slotCourse;
+        sceneImageFitReplaceButton.disabled = !slotCourse;
+    } catch (error) {
+        sceneImageInfo.textContent = 'Could not decode this image slot.';
+        sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Decode failed.';
+        sceneImageFeedback.classList.add('error');
+        sceneImageExportButton.disabled = true;
+        sceneImageReplaceButton.disabled = true;
+        sceneImageFitReplaceButton.disabled = true;
+    }
+}
+
+function refreshSceneImageUI(): void {
+    const id = getSceneImageCourseId();
+    sceneImageSlotSelect.replaceChildren();
+    sceneImageFeedback.textContent = '';
+    sceneImageFeedback.classList.remove('error');
+
+    if (!id || !workingData) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = id ? 'No data loaded' : 'Not available for this course';
+        sceneImageSlotSelect.append(opt);
+        sceneImageSlotSelect.disabled = true;
+        sceneImageInfo.textContent = !id ? 'Scene UI bitmap slots are defined for SCENE01/SCENE02.' : 'Open a course DAT file first.';
+        sceneImageExportButton.disabled = true;
+        sceneImageReplaceButton.disabled = true;
+        sceneImageFitReplaceButton.disabled = true;
+        const ctx = sceneImagePreview.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, sceneImagePreview.width, sceneImagePreview.height);
+        return;
+    }
+
+    sceneImageSlotSelect.disabled = false;
+    const slots = getSceneImageSlots(id);
+    for (const slot of slots) {
+        const opt = document.createElement('option');
+        opt.value = slot.id;
+        opt.textContent = `${slot.id} · ${slot.description} (${slot.width}×${slot.height ?? '?'})`;
+        sceneImageSlotSelect.append(opt);
+    }
+    const current = slots.find(s => s.id === sceneImageSlotSelect.value) ?? slots[0];
+    if (current) {
+        sceneImageSlotSelect.value = current.id;
+        renderSceneImagePreview(current);
+    }
+}
+
+function selectedSceneImageSlot(): SceneImageSlot | null {
+    const id = getSceneImageCourseId();
+    if (!id) return null;
+    const slots = getSceneImageSlots(id);
+    return slots.find(s => s.id === sceneImageSlotSelect.value) ?? null;
+}
+
+function exportSceneImagePng(): void {
+    const slot = selectedSceneImageSlot();
+    if (!slot || !workingData) return;
+    try {
+        const url = sceneImagePreview.toDataURL('image/png');
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `${getSceneImageCourseId() ?? courseId}_${slot.id}_0x${slot.offset.toString(16)}_${slot.width}x${slot.height ?? 0}.png`;
+        anchor.click();
+        sceneImageFeedback.textContent = `Exported ${anchor.download}.`;
+        sceneImageFeedback.classList.remove('error');
+    } catch (error) {
+        sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Could not export image.';
+        sceneImageFeedback.classList.add('error');
+    }
+}
+
+function paletteColorDistance(a: number, b: number, palette: number[]): number {
+    const ap = a * 3;
+    const bp = b * 3;
+    const dr = (palette[ap] ?? 0) - (palette[bp] ?? 0);
+    const dg = (palette[ap + 1] ?? 0) - (palette[bp + 1] ?? 0);
+    const db = (palette[ap + 2] ?? 0) - (palette[bp + 2] ?? 0);
+    return dr * dr + dg * dg + db * db;
+}
+
+function remapIndexedToAllowed(indexed: Uint8Array, allowed: number[], palette: number[]): Uint8Array {
+    if (allowed.length === 0) return indexed.slice();
+    const allowedSet = new Set(allowed);
+    const map = new Map<number, number>();
+    const getMapped = (idx: number): number => {
+        if (allowedSet.has(idx)) return idx;
+        const cached = map.get(idx);
+        if (cached !== undefined) return cached;
+        let best = allowed[0];
+        let bestDist = Infinity;
+        for (const a of allowed) {
+            const d = paletteColorDistance(idx, a, palette);
+            if (d < bestDist) {
+                bestDist = d;
+                best = a;
+                if (d === 0) break;
+            }
+        }
+        map.set(idx, best);
+        return best;
+    };
+    const out = new Uint8Array(indexed.length);
+    for (let i = 0; i < indexed.length; i++) {
+        out[i] = getMapped(indexed[i]);
+    }
+    return out;
+}
+
+function fitIndexedPixelsToSlot(
+    indexed: Uint8Array,
+    slot: SceneImageSlot,
+    palette: number[],
+): { fitted: Uint8Array; encoded: Uint8Array; colors: number } | null {
+    const direct = encodeSceneImageSlot(indexed, slot);
+    if (direct.length <= slot.size) {
+        const distinct = new Set(indexed).size;
+        return { fitted: indexed, encoded: direct, colors: distinct };
+    }
+
+    const freq = new Map<number, number>();
+    for (let i = 0; i < indexed.length; i++) {
+        const v = indexed[i];
+        freq.set(v, (freq.get(v) ?? 0) + 1);
+    }
+    const usedAll = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([idx]) => idx);
+    const allowedRange = sceneImageAllowedIndices(slot);
+    const used = allowedRange ? usedAll.filter(i => allowedRange.includes(i)) : usedAll;
+    // Fallback: if nothing in allowed range (shouldn't happen), use allowed range directly
+    const baseUsed = used.length > 0 ? used : (allowedRange ?? usedAll);
+
+    // Try progressively fewer allowed colors (keep most frequent, remap others to nearest kept).
+    for (let k = Math.min(baseUsed.length - 1, 255); k >= 1; k = k > 16 ? k - Math.max(1, Math.floor(k * 0.15)) : k - 1) {
+        const allowed = baseUsed.slice(0, k);
+        const candidate = remapIndexedToAllowed(indexed, allowed, palette);
+        const enc = encodeSceneImageSlot(candidate, slot);
+        if (enc.length <= slot.size) {
+            return { fitted: candidate, encoded: enc, colors: k };
+        }
+    }
+
+    // Extreme fallback: single most frequent color within allowed range.
+    const mono = new Uint8Array(indexed.length).fill(baseUsed[0] ?? 0);
+    const monoEnc = encodeSceneImageSlot(mono, slot);
+    if (monoEnc.length <= slot.size) {
+        return { fitted: mono, encoded: monoEnc, colors: 1 };
+    }
+    return null;
+}
+
+async function replaceSceneImageFromFile(file: File, autoFit: boolean): Promise<void> {
+    const slot = selectedSceneImageSlot();
+    if (!slot || !workingData) return;
+    sceneImageFeedback.textContent = '';
+    sceneImageFeedback.classList.remove('error');
+    try {
+        const bitmap = await createImageBitmap(file);
+        try {
+            const width = slot.width;
+            const height = slot.height ?? Math.floor((decodeSceneImageSlot(workingData, slot).length) / width);
+            if (bitmap.width !== width || bitmap.height !== height) {
+                throw new Error(`Image must be ${width}×${height} pixels (got ${bitmap.width}×${bitmap.height}).`);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Could not read uploaded image.');
+            ctx.drawImage(bitmap, 0, 0);
+            const rgba = ctx.getImageData(0, 0, width, height).data;
+            const palette = sceneImagePaletteForSlot(workingData, slot);
+            const allowedIndices = sceneImageAllowedIndices(slot);
+
+            // Convert top-to-bottom canvas pixels to TD3 bottom-to-top indexed pixels.
+            // Canvas row 0 (top visual) -> TD3 buffer row (height-1).
+            const indexed = new Uint8Array(width * height);
+            for (let y = 0; y < height; y++) {
+                const dstY = height - 1 - y;
+                for (let x = 0; x < width; x++) {
+                    const si = (y * width + x) * 4;
+                    indexed[dstY * width + x] = nearestPaletteIndex(rgba[si], rgba[si + 1], rgba[si + 2], palette, allowedIndices);
+                }
+            }
+
+            const direct = tryReplaceSceneImageSlot(workingData, slot, indexed);
+            if (direct.ok) {
+                renderSceneImagePreview(slot);
+                updateStatus();
+                sceneImageFeedback.textContent = `Replaced ${slot.id} (${direct.size}/${slot.size} bytes).`;
+                sceneImageFeedback.classList.remove('error');
+                return;
+            }
+
+            if (!autoFit) {
+                throw new Error(`${direct.reason} Try "Fit & replace…" to simplify colors until it fits.`);
+            }
+
+            const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
+            if (!fit) {
+                throw new Error(`${direct.reason} Could not auto-fit within slot size.`);
+            }
+            // Write fitted result
+            replaceTd3ImageSlot(workingData, slot.offset, slot.size, fit.encoded);
+            renderSceneImagePreview(slot);
+            updateStatus();
+            sceneImageFeedback.textContent = `Replaced ${slot.id} after fitting (${fit.encoded.length}/${slot.size} bytes, ~${fit.colors} colors).`;
+            sceneImageFeedback.classList.remove('error');
+        } finally {
+            bitmap.close();
+        }
+    } catch (error) {
+        sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Could not replace image.';
+        sceneImageFeedback.classList.add('error');
+    }
 }
 
 function selectedMapOffset(): number {
@@ -264,6 +591,7 @@ function refreshTilePreviews(): void {
     tilePreviewAtlas = createTilePreviewAtlas(maps.tiles2, maps.tiles1, maps.tiles3);
     renderTilePalette();
     renderGrid();
+    refreshSceneImageUI();
 }
 
 function renderGrid(): void {
@@ -1068,6 +1396,16 @@ function invertCourse(): void {
         const reversedLaneBank = reverseLaneBank(sharedLaneBank);
         const reversedLaneBankData = serializeLaneBank(reversedLaneBank, PRIVATE_LANE_TILE_COUNT);
         const invertedData = invertPacificCourse(workingData);
+        let swappedLandscapes = false;
+        let swapWarning = '';
+        if (swapScene03LandscapesInput.checked) {
+            try {
+                swapScene01LandscapeSetsAandC(invertedData);
+                swappedLandscapes = true;
+            } catch (swapError) {
+                swapWarning = swapError instanceof Error ? swapError.message : 'Could not swap leg 1/5 landscapes.';
+            }
+        }
         inversionOriginalLaneBank = laneBank;
         inversionOriginalLaneBankSource = laneBankSource;
         inversionOriginalLaneBankApproximate = laneBankApproximate;
@@ -1089,7 +1427,9 @@ function invertCourse(): void {
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
         refreshTilePreviews();
-        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated. Export SCENE03.DAT, SCENE03.LST, and SCENE03P.BIN; routes still need validation.');
+        const swapNote = swappedLandscapes ? ' landscapes/palettes swapped (leg 1↔5, set A↔C);' : '';
+        const warningNote = swapWarning ? ` Landscape swap skipped: ${swapWarning}` : '';
+        setStatus(`SCENE03 experiment ready ·${swapNote} reversed AI navigation bank generated. Export SCENE03.DAT, SCENE03.LST, and SCENE03P.BIN; routes still need validation.${warningNote}`, Boolean(swapWarning));
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -1169,6 +1509,28 @@ requiredElement<HTMLButtonElement>('set-mode').addEventListener('click', () => {
 probeButton.addEventListener('click', probeAiPaths);
 invertCourseButton.addEventListener('click', invertCourse);
 paletteBankSelect.addEventListener('change', renderTilePalette);
+sceneImageSlotSelect.addEventListener('change', () => {
+    const slot = selectedSceneImageSlot();
+    if (slot) renderSceneImagePreview(slot);
+});
+sceneImageExportButton.addEventListener('click', exportSceneImagePng);
+sceneImageReplaceButton.addEventListener('click', () => {
+    pendingSceneImageReplaceAutoFit = false;
+    sceneImageFileInput.click();
+});
+sceneImageFitReplaceButton.addEventListener('click', () => {
+    pendingSceneImageReplaceAutoFit = true;
+    sceneImageFileInput.click();
+});
+sceneImageFileInput.addEventListener('change', async () => {
+    const file = sceneImageFileInput.files?.[0];
+    const autoFit = pendingSceneImageReplaceAutoFit;
+    pendingSceneImageReplaceAutoFit = false;
+    if (file) {
+        await replaceSceneImageFromFile(file, autoFit);
+    }
+    sceneImageFileInput.value = '';
+});
 exportButton.addEventListener('click', downloadData);
 exportLaneBankButton.addEventListener('click', downloadLaneBank);
 exportLstButton.addEventListener('click', downloadLst);
