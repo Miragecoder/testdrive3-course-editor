@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TD3 PLAYDISK.DAT Generator</title>
+    <link rel="stylesheet" href="./src/browser/editor.css">
+    <style>
+        .playdisk-shell { width: min(1100px, 100%); margin: 0 auto; padding: 22px; }
+        .playdisk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }
+        .slot-list { display: grid; gap: 8px; }
+        .slot-row { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: center; }
+        .slot-row span { color: #909bad; font: 11px ui-monospace, monospace; }
+        .slot-row input, .tail-grid input, .tail-grid select { width: 100%; padding: 8px 10px; color: #eef2f8; border: 1px solid #394150; border-radius: 7px; background: #11161f; font: 12px ui-monospace, monospace; }
+        .tail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+        .actions .spacer { flex: 1; }
+        .hint { color: #909bad; font-size: 11px; line-height: 1.5; margin: 0; }
+        .panel p.hint { margin: 0; }
+    </style>
+</head>
+<body>
+    <main class="playdisk-shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">Test Drive III · Workshop</p>
+                <h1>PLAYDISK.DAT <span>generator</span></h1>
+            </div>
+            <a class="back-link" href="./editor.html">Back to course editor</a>
+        </header>
+
+        <section class="panel">
+            <h2>About</h2>
+            <p class="hint">PLAYDISK.DAT stores the car and scene slots shown by the game, plus selection and skill state. Edit slot codes to match the base names of your <code>.LST</code> files (for example <code>CCERV</code> or <code>SCENE03</code>). Unused slots are commonly filled with <code>?</code> characters.</p>
+        </section>
+
+        <div class="actions">
+            <button id="open-playdisk" type="button">Open PLAYDISK.DAT…</button>
+            <input id="playdisk-file" type="file" accept=".dat" hidden>
+            <button id="reset-playdisk" type="button" class="secondary">Reset to defaults</button>
+            <span id="playdisk-filename" style="color:#8994a5;font:12px ui-monospace,monospace;">Default template</span>
+            <span class="spacer"></span>
+            <button id="export-playdisk" type="button" style="background:#bf6032;border-color:#ef8c55;">Export PLAYDISK.DAT</button>
+        </div>
+
+        <div class="playdisk-grid">
+            <section class="panel">
+                <h2>Car slots (14)</h2>
+                <p class="hint">6-character codes. Active car slots usually start with <code>C</code> and need a matching <code>.LST</code> in the game folder.</p>
+                <div id="car-slots" class="slot-list"></div>
+            </section>
+
+            <section class="panel">
+                <h2>Scene slots (8)</h2>
+                <p class="hint">8-character codes. Active scene slots usually start with <code>S</code> (for example <code>SCENE01</code>).</p>
+                <div id="scene-slots" class="slot-list"></div>
+            </section>
+
+            <section class="panel">
+                <h2>Selection & state</h2>
+                <p class="hint">These bytes control the default selection and stored skill/state values. Values are written as 16-bit little-endian words unless noted.</p>
+                <div class="tail-grid">
+                    <label>Selected car slot <input id="selected-car" type="number" min="0" max="65535" value="3"></label>
+                    <label>Unknown word (0xA8) <input id="unknown-word" type="number" min="0" max="65535" value="0"></label>
+                    <label>Selected scene slot <input id="selected-scene" type="number" min="0" max="65535" value="0"></label>
+                    <label>Skill word (0xAC) <input id="skill-word" type="number" min="0" max="65535" value="2"></label>
+                    <label>Tail byte 0xAE <input id="tail-0" type="text" value="05"></label>
+                    <label>Tail byte 0xAF <input id="tail-1" type="text" value="02"></label>
+                    <label>Tail byte 0xB0 <input id="tail-2" type="text" value="01"></label>
+                    <label>Tail byte 0xB1 <input id="tail-3" type="text" value="01"></label>
+                    <label>Tail byte 0xB2 <input id="tail-4" type="text" value="04"></label>
+                </div>
+            </section>
+        </div>
+
+        <footer id="status" class="status" role="status">Ready to generate PLAYDISK.DAT.</footer>
+        <p class="notice">Export creates a new <code>PLAYDISK.DAT</code> file (179 bytes). Keep backups of original game files and test on a copy.</p>
+    </main>
+    <script type="module" src="./src/browser/playdisk.ts"></script>
+</body>
+</html>

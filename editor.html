@@ -13,7 +13,10 @@
                 <p class="eyebrow">Test Drive III · Workshop</p>
                 <h1>Course editor <span>prototype</span></h1>
             </div>
-            <a class="back-link" href="./">Back to 3D viewer</a>
+            <div style="display:flex;gap:14px;align-items:center;">
+                <a class="back-link" href="./playdisk.html">PLAYDISK.DAT generator</a>
+                <a class="back-link" href="./">Back to 3D viewer</a>
+            </div>
         </header>
 
         <section class="toolbar" aria-label="Course controls">
@@ -31,7 +34,9 @@
             <button id="open-dat" type="button">Open DAT…</button>
             <input id="custom-dat" type="file" accept=".dat" hidden>
             <span id="source-filename">SCENE01.DAT</span>
+            <span id="lst-filename" style="color:#8994a5;font:12px ui-monospace,monospace;">SCENE01.LST</span>
             <button id="export-dat" type="button" disabled>Export edited DAT</button>
+            <button id="export-lst" type="button" disabled>Export edited LST</button>
         </section>
 
         <div class="workspace">
@@ -172,6 +177,28 @@
                     <div id="probe-results" class="route-script-list subtle" aria-live="polite"></div>
                     <div id="route-comparison" class="route-comparison"></div>
                     <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Scene strings (LST)</h2>
+                    <p class="subtle">Edits the string values in the scene's .LST file. Route names are 36 fixed slots (12 characters max text, null-terminated in 12 bytes). UI strings are stored in a fixed 250-byte region.</p>
+                    <label>
+                        Course name <small>max 18 chars</small>
+                        <input id="lst-course-name" type="text" maxlength="18" value="">
+                    </label>
+                    <details>
+                        <summary style="cursor:pointer;color:#aeb8c7;font-size:11px;text-transform:uppercase;letter-spacing:.07em;">Route names (36)</summary>
+                        <div id="lst-route-names" class="route-script-list" style="margin-top:10px;"></div>
+                    </details>
+                    <label>
+                        UI strings <small>one per line, 0xAA-separated in file</small>
+                        <textarea id="lst-ui-strings" rows="10" spellcheck="false" style="width:100%;padding:8px 10px;color:#eef2f8;border:1px solid #394150;border-radius:7px;background:#11161f;font:11px ui-monospace,monospace;resize:vertical;"></textarea>
+                    </label>
+                    <p id="lst-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                    <div class="button-row">
+                        <button id="apply-lst" type="button">Apply LST strings</button>
+                        <button id="reset-lst" class="secondary" type="button">Reset LST</button>
+                    </div>
                 </section>
 
                 <section class="panel">

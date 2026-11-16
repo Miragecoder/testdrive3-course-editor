@@ -49,6 +49,12 @@ import {
     TILE_PREVIEW_SIZE,
     type TilePreviewBank,
 } from './tile-previews';
+import {
+    readSceneLstStrings,
+    writeCourseName,
+    writeRouteName,
+    writeUiStrings,
+} from '@shared/scene-lst';
 
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
 const legSelect = requiredElement<HTMLSelectElement>('leg-select');
@@ -64,7 +70,15 @@ const cellDetails = requiredElement<HTMLDivElement>('cell-details');
 const status = requiredElement<HTMLDivElement>('status');
 const fileInput = requiredElement<HTMLInputElement>('custom-dat');
 const filenameLabel = requiredElement<HTMLSpanElement>('source-filename');
+const lstFilenameLabel = requiredElement<HTMLSpanElement>('lst-filename');
 const exportButton = requiredElement<HTMLButtonElement>('export-dat');
+const exportLstButton = requiredElement<HTMLButtonElement>('export-lst');
+const lstCourseNameInput = requiredElement<HTMLInputElement>('lst-course-name');
+const lstRouteNamesEl = requiredElement<HTMLDivElement>('lst-route-names');
+const lstUiStringsInput = requiredElement<HTMLTextAreaElement>('lst-ui-strings');
+const lstFeedback = requiredElement<HTMLParagraphElement>('lst-feedback');
+const applyLstButton = requiredElement<HTMLButtonElement>('apply-lst');
+const resetLstButton = requiredElement<HTMLButtonElement>('reset-lst');
 const exportLaneBankButton = requiredElement<HTMLButtonElement>('export-lane-bank');
 const invertCourseButton = requiredElement<HTMLButtonElement>('invert-course');
 const resetLegButton = requiredElement<HTMLButtonElement>('reset-leg');
@@ -94,6 +108,9 @@ let courseId: CourseId = 'SCENE01';
 let sourceFilename = 'SCENE01.DAT';
 let originalData: Uint8Array | null = null;
 let workingData: Uint8Array | null = null;
+let originalLstData: Uint8Array | null = null;
+let workingLstData: Uint8Array | null = null;
+let lstSourceFilename = 'SCENE01.LST';
 let selectedCell: { x: number; y: number } | null = null;
 let hoveredCell: { x: number; y: number } | null = null;
 let tilePreviewAtlas: HTMLCanvasElement | null = null;
@@ -162,10 +179,12 @@ function updateStatus(): void {
     setStatus(`${sourceFilename} · ${modeLabel} · ${countEditedCells()} edited cells`);
     exportButton.disabled = false;
     exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
+    exportLstButton.disabled = !workingLstData || inversionApplied;
     exportLaneBankButton.disabled = !inversionApplied || !invertedLaneBankData;
     invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
     resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
+    resetLstButton.disabled = !workingLstData || inversionApplied;
 }
 
 function renderCell(x: number, y: number): void {
@@ -962,6 +981,7 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     paletteTileId = null;
     filenameLabel.textContent = sourceFilename;
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
+    loadCourseLst(id);
     refreshTilePreviews();
 }
 
@@ -1012,6 +1032,10 @@ function resetCurrentLeg(): void {
 function resetAll(): void {
     if (!originalData) return;
     workingData = originalData.slice();
+    if (originalLstData) {
+        workingLstData = originalLstData.slice();
+        renderLstEditor();
+    }
     restoreInversionLaneBank();
     inversionApplied = false;
     selectedCell = null;
@@ -1056,7 +1080,7 @@ function invertCourse(): void {
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
         refreshTilePreviews();
-        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated; routes still need validation.');
+        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated; routes still need validation. Export LST separately if you need to edit scene strings.');
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -1138,6 +1162,9 @@ invertCourseButton.addEventListener('click', invertCourse);
 paletteBankSelect.addEventListener('change', renderTilePalette);
 exportButton.addEventListener('click', downloadData);
 exportLaneBankButton.addEventListener('click', downloadLaneBank);
+exportLstButton.addEventListener('click', downloadLst);
+applyLstButton.addEventListener('click', applyLstStrings);
+resetLstButton.addEventListener('click', resetLstStrings);
 resetLegButton.addEventListener('click', resetCurrentLeg);
 resetAllButton.addEventListener('click', resetAll);
 
@@ -1164,6 +1191,7 @@ fileInput.addEventListener('change', async () => {
         paletteTileId = null;
         filenameLabel.textContent = sourceFilename;
         cellDetails.textContent = 'Select a cell to inspect or edit it.';
+        if (!workingLstData) loadCourseLst(selectedCourse);
         refreshTilePreviews();
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not open DAT file.', true);
@@ -1360,6 +1388,110 @@ function probeAiPaths(): void {
             probeAiPaths();
         });
         probeResults.append(applySame);
+    }
+}
+
+
+function loadCourseLst(id: CourseId): void {
+    const source = id === 'SCENE01' ? files.scene01Lst : files.scene02Lst;
+    if (!source) {
+        originalLstData = null;
+        workingLstData = null;
+        lstSourceFilename = `${id}.LST`;
+        lstFilenameLabel.textContent = `${id}.LST (unavailable)`;
+        renderLstEditor();
+        return;
+    }
+    originalLstData = source.slice();
+    workingLstData = source.slice();
+    lstSourceFilename = `${id}.LST`;
+    lstFilenameLabel.textContent = lstSourceFilename;
+    renderLstEditor();
+}
+
+function renderLstEditor(): void {
+    lstRouteNamesEl.replaceChildren();
+    lstFeedback.textContent = '';
+    lstFeedback.classList.remove('error');
+    if (!workingLstData) {
+        lstCourseNameInput.value = '';
+        lstUiStringsInput.value = '';
+        lstCourseNameInput.disabled = true;
+        lstUiStringsInput.disabled = true;
+        applyLstButton.disabled = true;
+        return;
+    }
+    lstCourseNameInput.disabled = false;
+    lstUiStringsInput.disabled = false;
+    applyLstButton.disabled = false;
+    try {
+        const strings = readSceneLstStrings(workingLstData);
+        lstCourseNameInput.value = strings.courseName;
+        lstUiStringsInput.value = strings.uiStrings.join('\n');
+        for (let i = 0; i < strings.routeNames.length; i++) {
+            const label = document.createElement('label');
+            label.className = 'route-editor-label';
+            label.textContent = `Route ${String(i).padStart(2, '0')}${i < 20 ? ` (map ${Math.floor(i / 4) + 1}, option ${(i % 4) + 1})` : ' (placeholder)'}`;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.maxLength = 11;
+            input.value = strings.routeNames[i];
+            input.className = 'route-editor-input';
+            input.dataset.routeIndex = String(i);
+            label.append(input);
+            lstRouteNamesEl.append(label);
+        }
+        updateStatus();
+    } catch (error) {
+        lstFeedback.textContent = error instanceof Error ? error.message : 'Could not read scene LST strings.';
+        lstFeedback.classList.add('error');
+    }
+}
+
+function applyLstStrings(): void {
+    if (!workingLstData) return;
+    const lst = workingLstData;
+    try {
+        writeCourseName(lst, lstCourseNameInput.value);
+        lstRouteNamesEl.querySelectorAll<HTMLInputElement>('input[data-route-index]').forEach((input) => {
+            const index = Number(input.dataset.routeIndex);
+            writeRouteName(lst, index, input.value);
+        });
+        const uiStrings = lstUiStringsInput.value.length === 0 ? [] : lstUiStringsInput.value.split('\n');
+        writeUiStrings(lst, uiStrings);
+        lstFeedback.textContent = 'LST strings applied to the working copy.';
+        lstFeedback.classList.remove('error');
+        renderLstEditor();
+        updateStatus();
+    } catch (error) {
+        lstFeedback.textContent = error instanceof Error ? error.message : 'Could not apply LST strings.';
+        lstFeedback.classList.add('error');
+    }
+}
+
+function resetLstStrings(): void {
+    if (!originalLstData) return;
+    workingLstData = originalLstData.slice();
+    renderLstEditor();
+    setStatus(`${lstSourceFilename} strings reset.`);
+}
+
+function downloadLst(): void {
+    if (!workingLstData) return;
+    try {
+        const buffer = new ArrayBuffer(workingLstData.byteLength);
+        new Uint8Array(buffer).set(workingLstData);
+        const blob = new Blob([buffer], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        const stem = lstSourceFilename.replace(/\.LST$/i, '');
+        anchor.download = `${stem}_EDITED.LST`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setStatus(`Exported ${anchor.download}.`);
+    } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not export LST file.', true);
     }
 }
 
