@@ -119,3 +119,87 @@ export function updateSceneLstArchiveHashes(data: Uint8Array, fromPrefix: string
     void archiveOffset; void entrySize; void entryCount; void fromPrefix; void toPrefix;
     return out;
 }
+
+
+const SCENE_ARCHIVE_OFFSET = 0x04D0;
+const SCENE_ARCHIVE_ENTRY_SIZE = 14;
+const SCENE_ARCHIVE_ENTRY_COUNT = 0x196 / SCENE_ARCHIVE_ENTRY_SIZE;
+
+function signedByte(value: number): number {
+    return value & 0x80 ? value - 0x100 : value;
+}
+
+function hashArchiveFilename(filename: string): readonly [number, number] {
+    let h1 = 0;
+    for (let index = filename.length - 1; index >= 0; index--) {
+        h1 = (0x101 * h1 + signedByte(filename.charCodeAt(index))) & 0xFFFF;
+    }
+    let h2 = 0;
+    for (let index = 0; index < filename.length - 1; index++) {
+        h2 = (h2 + signedByte(filename.charCodeAt(index)) * index) & 0xFFFF;
+    }
+    return [h2, h1];
+}
+
+function readWord(data: Uint8Array, offset: number): number {
+    return data[offset] | (data[offset + 1] << 8);
+}
+
+function writeWord(data: Uint8Array, offset: number, value: number): void {
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >>> 8) & 0xFF;
+}
+
+function resolveScene01ArchiveName(h2: number, h1: number): string | null {
+    const preferred: string[] = [];
+    const base = 'SCENE01';
+    for (const suf of ['.ICN', '.SIC', 'T.BIN', 'O.BIN', 'P.BIN']) preferred.push(base + suf);
+    for (const x of 'ABCDE12345') for (const ext of ['.DAT', '.BIN', '.COL', '.MUS']) preferred.push(base + x + ext);
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    for (let i = 0; i < chars.length; i++) for (let j = 0; j < chars.length; j++) {
+        const ab = chars[i] + chars[j];
+        for (const ext of ['.COL', '.DAT', '.BIN', '.LZ', '.MUS']) preferred.push(base + ab + ext);
+    }
+    for (const name of preferred) {
+        const h = hashArchiveFilename(name);
+        if (h[0] === h2 && h[1] === h1) return name;
+    }
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._';
+    const tryLen = (len: number, prefix: string): string | null => {
+        if (len === 0) {
+            const name = base + prefix;
+            const h = hashArchiveFilename(name);
+            return h[0] === h2 && h[1] === h1 ? name : null;
+        }
+        for (let i = 0; i < alphabet.length; i++) {
+            const found = tryLen(len - 1, prefix + alphabet[i]);
+            if (found) return found;
+        }
+        return null;
+    };
+    for (let len = 1; len <= 6; len++) {
+        const found = tryLen(len, '');
+        if (found) return found;
+    }
+    return null;
+}
+
+export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array {
+    if (scene01Lst.length !== SCENE_LST_SIZE) {
+        throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
+    }
+    const out = scene01Lst.slice();
+    for (let index = 0; index < SCENE_ARCHIVE_ENTRY_COUNT; index++) {
+        const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
+        const h2 = readWord(out, entryOffset);
+        const h1 = readWord(out, entryOffset + 2);
+        if (h2 === 0 && h1 === 0) break;
+        const name = resolveScene01ArchiveName(h2, h1);
+        if (!name || !name.startsWith('SCENE01')) continue;
+        const renamed = 'SCENE03' + name.slice('SCENE01'.length);
+        const nh = hashArchiveFilename(renamed);
+        writeWord(out, entryOffset, nh[0]);
+        writeWord(out, entryOffset + 2, nh[1]);
+    }
+    return out;
+}

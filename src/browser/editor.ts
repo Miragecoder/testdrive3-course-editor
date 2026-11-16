@@ -54,6 +54,7 @@ import {
     writeCourseName,
     writeRouteName,
     writeUiStrings,
+    createScene03LstFromScene01,
 } from '@shared/scene-lst';
 
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
@@ -179,12 +180,12 @@ function updateStatus(): void {
     setStatus(`${sourceFilename} · ${modeLabel} · ${countEditedCells()} edited cells`);
     exportButton.disabled = false;
     exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
-    exportLstButton.disabled = !workingLstData || inversionApplied;
+    exportLstButton.disabled = !workingLstData;
     exportLaneBankButton.disabled = !inversionApplied || !invertedLaneBankData;
     invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
     resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
-    resetLstButton.disabled = !workingLstData || inversionApplied;
+    resetLstButton.disabled = !workingLstData;
 }
 
 function renderCell(x: number, y: number): void {
@@ -1034,6 +1035,8 @@ function resetAll(): void {
     workingData = originalData.slice();
     if (originalLstData) {
         workingLstData = originalLstData.slice();
+        lstSourceFilename = `${courseId}.LST`;
+        lstFilenameLabel.textContent = lstSourceFilename;
         renderLstEditor();
     }
     restoreInversionLaneBank();
@@ -1073,6 +1076,12 @@ function invertCourse(): void {
         laneBankApproximate = false;
         invertedLaneBankData = reversedLaneBankData;
         workingData = invertedData;
+        if (originalLstData) {
+            workingLstData = createScene03LstFromScene01(originalLstData);
+            lstSourceFilename = 'SCENE03.LST';
+            lstFilenameLabel.textContent = 'SCENE03.LST';
+            renderLstEditor();
+        }
         inversionApplied = true;
         selectedCell = null;
         selectedEntitySlot = null;
@@ -1080,7 +1089,7 @@ function invertCourse(): void {
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
         refreshTilePreviews();
-        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated; routes still need validation. Export LST separately if you need to edit scene strings.');
+        setStatus('SCENE03 experiment ready · reversed AI navigation bank generated. Export SCENE03.DAT, SCENE03.LST, and SCENE03P.BIN; routes still need validation.');
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -1471,7 +1480,15 @@ function applyLstStrings(): void {
 
 function resetLstStrings(): void {
     if (!originalLstData) return;
-    workingLstData = originalLstData.slice();
+    if (inversionApplied) {
+        workingLstData = createScene03LstFromScene01(originalLstData);
+        lstSourceFilename = 'SCENE03.LST';
+        lstFilenameLabel.textContent = 'SCENE03.LST';
+    } else {
+        workingLstData = originalLstData.slice();
+        lstSourceFilename = `${courseId}.LST`;
+        lstFilenameLabel.textContent = lstSourceFilename;
+    }
     renderLstEditor();
     setStatus(`${lstSourceFilename} strings reset.`);
 }
@@ -1485,8 +1502,12 @@ function downloadLst(): void {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        const stem = lstSourceFilename.replace(/\.LST$/i, '');
-        anchor.download = `${stem}_EDITED.LST`;
+        if (inversionApplied && /^SCENE03$/i.test(lstSourceFilename.replace(/\.LST$/i, ''))) {
+            anchor.download = 'SCENE03.LST';
+        } else {
+            const stem = lstSourceFilename.replace(/\.LST$/i, '');
+            anchor.download = `${stem}_EDITED.LST`;
+        }
         anchor.click();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
         setStatus(`Exported ${anchor.download}.`);
