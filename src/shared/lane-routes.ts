@@ -37,6 +37,10 @@ export interface LaneRouteStep {
     readonly flags: number;
     readonly enteredBy: LaneRouteEntry;
     readonly heightDelta?: number;
+    /** Index in script.branchModes consumed at this waypoint's control point, if any. */
+    readonly scriptStepIndex?: number;
+    /** Script mode value consumed at this waypoint's control point, if any. */
+    readonly scriptStepMode?: number;
 }
 
 export interface LaneRouteTrace {
@@ -104,12 +108,20 @@ export function traceOpponentLaneRoute(
         const stateKey = `${state.x}:${state.y}:${state.waypointIndex}:${state.scriptPosition}:${state.behavior}`;
         if (visited.has(stateKey)) return { status: 'route-loop', steps, uTurnCount };
         visited.add(stateKey);
+
+        const controlFlags = waypoint.flags & 0x80 ? 0 : waypoint.flags;
+        const consumesScript = !isLaneExit(waypoint) && (controlFlags & 0xBF3F) !== 0;
+        const scriptStepIndex = consumesScript ? state.scriptPosition : undefined;
+        const scriptStepMode = consumesScript ? script.branchModes[state.scriptPosition] : undefined;
+
         steps.push({
             ...state,
             tileId: cell.tileId,
             rotation: cell.rotation,
             elevation: cell.elevation,
             flags: waypoint.flags,
+            ...(scriptStepIndex !== undefined ? { scriptStepIndex } : {}),
+            ...(scriptStepMode !== undefined ? { scriptStepMode } : {}),
         });
 
         if (isLaneExit(waypoint)) {
@@ -147,11 +159,10 @@ export function traceOpponentLaneRoute(
             continue;
         }
 
-        const controlFlags = waypoint.flags & 0x80 ? 0 : waypoint.flags;
         let behavior = state.behavior;
         let scriptPosition = state.scriptPosition;
-        if ((controlFlags & 0xBF3F) !== 0) {
-            const nextMode = script.branchModes[scriptPosition];
+        if (consumesScript) {
+            const nextMode = script.branchModes[state.scriptPosition];
             if (nextMode === undefined) {
                 return {
                     status: script.terminates ? 'script-ended' : 'nondeterministic-branch',

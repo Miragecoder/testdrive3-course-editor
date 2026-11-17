@@ -195,3 +195,115 @@ function writeWord(data: Uint8Array, offset: number, value: number): void {
     data[offset] = value & 0xFF;
     data[offset + 1] = (value >>> 8) & 0xFF;
 }
+
+export interface TileEntryConnectivity {
+    readonly entryWaypointIndex: number;
+    readonly entryLocalSide: CardinalSide;
+    readonly exitLocalSides: readonly CardinalSide[];
+    readonly exitWaypointIndices: readonly number[];
+}
+
+export interface TileConnectivity {
+    /** Reachable exits per entry waypoint, considering standard branch behaviors (2,3,4). */
+    readonly byEntryWaypoint: readonly TileEntryConnectivity[];
+}
+
+const DEFAULT_BEHAVIORS = [2, 3, 4] as const;
+
+export function getTileConnectivity(lane: TileLane): TileConnectivity {
+    const byEntryWaypoint: TileEntryConnectivity[] = [];
+    for (const waypoint of lane.waypoints) {
+        if (!isLaneEntry(waypoint)) continue;
+        const reachable = collectReachableExitWaypoints(lane, waypoint.index);
+        const reachableIndices = [...reachable];
+        const exitLocalSides = [...new Set(reachableIndices.map((idx) => (lane.waypoints[idx].flags & 3) as CardinalSide))]
+            .sort((a, b) => a - b) as CardinalSide[];
+        byEntryWaypoint.push({
+            entryWaypointIndex: waypoint.index,
+            entryLocalSide: (waypoint.flags & 3) as CardinalSide,
+            exitLocalSides,
+            exitWaypointIndices: reachableIndices.sort((a, b) => a - b),
+        });
+    }
+    return { byEntryWaypoint };
+}
+
+function collectReachableExitWaypoints(lane: TileLane, startIndex: number): ReadonlySet<number> {
+    const exits = new Set<number>();
+    const queue: Array<{ index: number; behavior: number }> = [];
+    const visited = new Set<string>();
+    for (const behavior of DEFAULT_BEHAVIORS) queue.push({ index: startIndex, behavior });
+
+    while (queue.length > 0) {
+        const state = queue.shift()!;
+        const key = `${state.index}:${state.behavior}`;
+        if (visited.has(key)) continue;
+        visited.add(key);
+
+        const waypoint = lane.waypoints[state.index];
+        if (!waypoint) continue;
+        if (isLaneExit(waypoint)) {
+            exits.add(state.index);
+            continue;
+        }
+
+        const controlFlags = waypoint.flags & 0x80 ? 0 : waypoint.flags;
+        const isControlPoint = (controlFlags & 0xBF3F) !== 0;
+        const offsets = branchOffsetsForBehavior(controlFlags, state.behavior);
+        for (const offset of offsets) {
+            const nextIndex = state.index + offset;
+            if (nextIndex < 0 || nextIndex >= lane.waypoints.length) continue;
+            if (isControlPoint) {
+                for (const nextBehavior of DEFAULT_BEHAVIORS) {
+                    queue.push({ index: nextIndex, behavior: nextBehavior });
+                }
+            } else {
+                queue.push({ index: nextIndex, behavior: state.behavior });
+            }
+        }
+    }
+    return exits;
+}
+
+function branchOffsetsForBehavior(flags: number, behavior: number): readonly number[] {
+    const branchModes = behavior < 3
+        ? [0]
+        : behavior === 3
+            ? [1]
+            : behavior === 4
+                ? [2]
+                : behavior === 5
+                    ? [0, 1]
+                    : behavior === 6
+                        ? [0, 2]
+                        : [0, 1, 2];
+    return [...new Set(branchModes.map((branchMode) => branchOffset(flags, behavior, branchMode)))];
+}
+
+function branchOffset(flags: number, behavior: number, branchMode: number): number {
+    const lowOffset = signedSixBit(flags & 0x3F);
+    const highOffset = signedSixBit((flags >>> 8) & 0x3F);
+    if (branchMode === 1 && lowOffset !== 0) return lowOffset;
+    if (branchMode > 1 && highOffset !== 0) return highOffset;
+
+    if (flags & 0x8000) {
+        let selectedFlags = flags;
+        if ((behavior & 7) === 6) selectedFlags = swapBytesFlags(selectedFlags);
+        if ((selectedFlags & 0x3F) === 0) selectedFlags = swapBytesFlags(selectedFlags);
+        return signedSixBit(selectedFlags & 0x3F);
+    }
+    return 1;
+}
+
+function signedSixBit(value: number): number {
+    const offset = value & 0x3F;
+    return offset & 0x20 ? offset - 0x40 : offset;
+}
+
+function swapBytesFlags(value: number): number {
+    return ((value & 0xFF) << 8) | (value >>> 8);
+}
+
+export function formatSideList(sides: readonly CardinalSide[]): string {
+    return sides.map((side) => CARDINAL_SIDES[side]).join(', ') || '—';
+}

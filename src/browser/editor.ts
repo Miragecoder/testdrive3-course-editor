@@ -24,7 +24,9 @@ import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode } fro
 import { LoadObjects, maps } from '@shared/objects';
 import { files, loadFiles } from '@shared/files';
 import {
+    CARDINAL_SIDES,
     PRIVATE_LANE_TILE_COUNT,
+    getTileConnectivity,
     isLaneEntry,
     isLaneExit,
     parseLaneBank,
@@ -721,7 +723,20 @@ function renderWaypointOverlay(mapOffset: number): void {
     const count = document.createElement('span');
     count.className = 'waypoint-count';
     count.textContent = `${lane.waypoints.length}`;
-    count.title = `Tile 0x${cell.tileId.toString(16).padStart(2, '0')} has ${lane.waypoints.length} lane waypoint(s)`;
+    const connectivity = getTileConnectivity(lane);
+    const byWorldEntry = new Map<CardinalSide, Set<CardinalSide>>();
+    for (const entry of connectivity.byEntryWaypoint) {
+        const worldEntry = rotatedSide(cell.rotation, entry.entryLocalSide);
+        if (!byWorldEntry.has(worldEntry)) byWorldEntry.set(worldEntry, new Set());
+        const exits = byWorldEntry.get(worldEntry)!;
+        for (const localExit of entry.exitLocalSides) exits.add(rotatedSide(cell.rotation, localExit));
+    }
+    const sideOrder: CardinalSide[] = [0, 1, 2, 3];
+    const routes = sideOrder
+        .filter((side) => byWorldEntry.has(side))
+        .map((side) => `${CARDINAL_SIDES[side]}→${[...(byWorldEntry.get(side) ?? [])].sort((a,b)=>a-b).map((s) => CARDINAL_SIDES[s]).join('/') || '—'}`);
+    const routeSummary = routes.length > 0 ? ` Routes: ${routes.join(', ')}.` : '';
+    count.title = `Tile 0x${cell.tileId.toString(16).padStart(2, '0')} has ${lane.waypoints.length} lane waypoint(s).${routeSummary}`;
     cellOverlay.append(count);
     overlay.append(cellOverlay);
     grid.append(overlay);
@@ -929,6 +944,7 @@ function renderRouteComparison(): void {
 
 function renderOpponentRouteTraces(mapOffset: number): void {
     grid.querySelector('.route-overlay')?.remove();
+    grid.querySelector('.route-decision-overlay')?.remove();
     routeTraces.replaceChildren();
     routeSource.textContent = laneBankApproximate
         ? `Approximate shared-bank trace: ${laneBankSource}.`
@@ -1000,19 +1016,41 @@ function renderOpponentRouteTraces(mapOffset: number): void {
         overlay.setAttribute('preserveAspectRatio', 'none');
         overlay.setAttribute('aria-label', 'Opponent lane routes');
 
+        const decisionOverlay = document.createElement('div');
+        decisionOverlay.className = 'route-decision-overlay';
+        decisionOverlay.setAttribute('aria-label', 'AI route script decision points');
+
         for (const { entity, trace } of traces) {
             const opponentIndex = entity.modelId - 1;
             if ((opponentIndex === 1 && !showRoute1Input.checked) || (opponentIndex === 2 && !showRoute2Input.checked)) continue;
-            if (trace.steps.length < 2) continue;
-            for (const segment of splitWrappedRoute(trace.steps, MAP_WIDTH, MAP_HEIGHT)) {
-                if (segment.length < 2) continue;
-                const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-                route.classList.add(`route-opponent-${opponentIndex}`);
-                route.setAttribute('points', segment.map(({ x, y }) => `${x},${y}`).join(' '));
-                overlay.append(route);
+            const script = scripts[entity.modelId - 2];
+
+            if (trace.steps.length >= 2) {
+                for (const segment of splitWrappedRoute(trace.steps, MAP_WIDTH, MAP_HEIGHT)) {
+                    if (segment.length < 2) continue;
+                    const route = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                    route.classList.add(`route-opponent-${opponentIndex}`);
+                    route.setAttribute('points', segment.map(({ x, y }) => `${x},${y}`).join(' '));
+                    overlay.append(route);
+                }
             }
+
+            const decisions = getRouteDecisionMarkers(trace, script);
+            decisions.forEach((decision, index) => {
+                const marker = document.createElement('span');
+                marker.className = `route-decision route-decision-opponent-${opponentIndex}`;
+                marker.textContent = String(decision.label);
+                marker.style.left = `${((decision.x + 0.5) / MAP_WIDTH) * 100}%`;
+                marker.style.top = `${((decision.y + 0.5) / MAP_HEIGHT) * 100}%`;
+                // Offset slightly so opponent 1/2 markers don't perfectly overlap on same cell.
+                const offset = opponentIndex === 1 ? -6 : 6;
+                marker.style.transform = `translate(calc(-50% + ${offset}px), calc(-50% + ${index % 2 === 0 ? -6 : 6}px))`;
+                marker.title = `Opponent ${opponentIndex} ${decision.kind} · ${decision.detail} @ cell (${decision.x},${decision.y})`;
+                decisionOverlay.append(marker);
+            });
         }
         if (overlay.childElementCount > 0) grid.append(overlay);
+        if (decisionOverlay.childElementCount > 0) grid.append(decisionOverlay);
     }
 }
 
@@ -1027,6 +1065,43 @@ function routeTraceDescription(status: LaneRouteTrace['status']): string {
         case 'nondeterministic-branch': return 'random branch diverges';
         case 'step-limit': return 'step limit reached';
     }
+}
+
+interface RouteDecisionMarker {
+    x: number;
+    y: number;
+    label: string | number;
+    kind: string;
+    detail: string;
+}
+
+function getRouteDecisionMarkers(
+    trace: LaneRouteTrace,
+    script: { initialMode: number; branchModes: readonly number[]; terminates: boolean },
+): RouteDecisionMarker[] {
+    if (trace.steps.length === 0) return [];
+    const markers: RouteDecisionMarker[] = [];
+    const start = trace.steps[0];
+    markers.push({
+        x: start.x,
+        y: start.y,
+        label: script.initialMode,
+        kind: 'initial mode',
+        detail: `script[0]=initial ${script.initialMode}`,
+    });
+
+    for (const step of trace.steps) {
+        if (step.scriptStepIndex === undefined) continue;
+        const value = step.scriptStepMode ?? script.branchModes[step.scriptStepIndex];
+        markers.push({
+            x: step.x,
+            y: step.y,
+            label: value ?? '?',
+            kind: 'branch decision',
+            detail: `script[${step.scriptStepIndex + 1}]=${value} (branch step ${step.scriptStepIndex + 1})`,
+        });
+    }
+    return markers;
 }
 
 function renderEntityOverlay(): void {
@@ -1216,11 +1291,55 @@ function updateCellDetails(x: number, y: number, cell: MapCell): void {
     tileIdInput.value = String(paletteTileId ?? cell.tileId);
     rotationInput.value = String(cell.rotation);
     elevationInput.value = String(cell.elevation);
-    cellDetails.textContent = `Cell (${x}, ${y}) · shared tile ${cell.tileId.toString(16).padStart(2, '0').toUpperCase()}`;
-    if (cell.tileId >= 0x40) {
-        cellDetails.textContent = `Cell (${x}, ${y}) · course tile ${(cell.tileId - 0x40).toString(16).padStart(2, '0').toUpperCase()}`;
+
+    const tileHex = cell.tileId.toString(16).padStart(2, '0').toUpperCase();
+    const tileLabel = cell.tileId >= 0x40
+        ? `course tile ${(cell.tileId - 0x40).toString(16).padStart(2, '0').toUpperCase()} (0x${tileHex})`
+        : `shared tile 0x${tileHex}`;
+
+    const lines = [`Cell (${x}, ${y}) · ${tileLabel}`, `Rotation ${cell.rotation * 90}° · elevation ${cell.elevation}`];
+
+    const lane = laneBank?.find((item) => item.tileId === cell.tileId);
+    if (!lane) {
+        lines.push('', 'Lane connectivity: no lane record for this tile in the current bank.');
+    } else if (lane.waypoints.length === 0) {
+        lines.push('', 'Lane connectivity: tile has no waypoints.');
+    } else {
+        const connectivity = getTileConnectivity(lane);
+        const byWorldEntry = new Map<CardinalSide, Set<CardinalSide>>();
+        for (const entry of connectivity.byEntryWaypoint) {
+            const worldEntry = rotatedSide(cell.rotation, entry.entryLocalSide);
+            if (!byWorldEntry.has(worldEntry)) byWorldEntry.set(worldEntry, new Set());
+            const exits = byWorldEntry.get(worldEntry)!;
+            for (const localExit of entry.exitLocalSides) {
+                exits.add(rotatedSide(cell.rotation, localExit));
+            }
+        }
+
+        lines.push('', 'Entry → available exits (world sides):');
+        if (byWorldEntry.size === 0) {
+            lines.push('• No entry waypoints on this tile.');
+        } else {
+            const sideOrder: CardinalSide[] = [0, 1, 2, 3];
+            for (const side of sideOrder) {
+                const exits = byWorldEntry.get(side);
+                if (!exits) continue;
+                const exitLabels = [...exits].sort((a, b) => a - b).map((s) => CARDINAL_SIDES[s]).join(', ');
+                lines.push(`• ${CARDINAL_SIDES[side]} → ${exitLabels || '—'}`);
+            }
+            const exitSides = [0, 1, 2, 3].filter((side) =>
+                lane.waypoints.some((wp) => isLaneExit(wp) && rotatedSide(cell.rotation, wp.flags & 3) === side)
+            ) as CardinalSide[];
+            const entrySides = new Set(byWorldEntry.keys());
+            const exitsWithoutEntries = exitSides.filter((side) => !entrySides.has(side));
+            if (exitsWithoutEntries.length > 0) {
+                lines.push(`• Exit-only sides: ${exitsWithoutEntries.map((s) => CARDINAL_SIDES[s]).join(', ')}`);
+            }
+        }
+        lines.push('', `(${lane.waypoints.length} waypoint${lane.waypoints.length === 1 ? '' : 's'} total; behavior-dependent branches considered)`);
     }
 
+    cellDetails.textContent = lines.join('\n');
 }
 
 function readCellControls(): MapCell {
