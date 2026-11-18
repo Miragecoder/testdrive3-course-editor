@@ -151,13 +151,16 @@
 
                 <section class="panel">
                     <h2>Reverse Pacific course</h2>
-                    <p class="subtle">Reverses the leg order, lighting, map placement, finish tile, racer starts, and private AI navigation bank. Route scripts and all opponent paths still need validation.</p>
+                    <p class="subtle">Reverses the leg order, lighting, map placement, finish tile, and racer starts, and generates private SCENE03 banks using SCENE01’s shared lane bank (un-reversed, no mirroring) plus a shared-copy object bank. The exported SCENE03.LST is marked for private O/P banks (0x57=0), and SCENE03O.BIN/SCENE03P.BIN are embedded into SCENE03.DAT for the original engine. Route scripts and all opponent paths still need validation.</p>
                     <label class="subtle" style="display:flex;gap:8px;align-items:center;margin:8px 0;">
                         <input id="swap-scene03-landscapes" type="checkbox" checked>
                         Swap leg 1 ↔ leg 5 landscapes &amp; palettes (set A↔C)
                     </label>
                     <button id="invert-course" class="invert-button" type="button" disabled>Create SCENE03 experiment</button>
-                    <button id="export-lane-bank" type="button" disabled>Export SCENE03P.BIN</button>
+                    <div class="button-row" style="margin-top:8px;flex-wrap:wrap;">
+                        <button id="export-lane-bank" type="button" disabled>Export SCENE03P.BIN</button>
+                        <button id="export-object-bank" type="button" disabled>Export SCENE03O.BIN</button>
+                    </div>
                 </section>
 
                 <section class="panel">

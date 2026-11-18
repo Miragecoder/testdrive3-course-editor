@@ -307,3 +307,27 @@ function swapBytesFlags(value: number): number {
 export function formatSideList(sides: readonly CardinalSide[]): string {
     return sides.map((side) => CARDINAL_SIDES[side]).join(', ') || '—';
 }
+
+/**
+ * Patch tile 0x24 in a reversed lane bank so the west-approach branch that was
+ * only reachable under behavior/mode 4 becomes reachable for behavior 4 at the
+ * control point used by the reversed-tile flow, restoring the missing N exit in
+ * the rot-270°/leg1 (6,13) SCENE03 case (and adjusting all 0x24 placements).
+ *
+ * In the reversed 0x24 record, waypoint 6 is a control point (flags 0x0005,
+ * low6=+5, hi6=0). Setting hi6 to -4 (0x3C) makes behavior 4 take offset -4 to
+ * waypoint 2 (local E exit) instead of +1, adding the previously unreachable
+ * west→north turn for that orientation while preserving other branch options.
+ */
+export function patchReversedTile24(lanes: readonly TileLane[]): readonly TileLane[] {
+    return lanes.map((lane) => {
+        if (lane.tileId !== 0x24 || lane.waypoints.length <= 6) return lane;
+        const waypoints = lane.waypoints.map((waypoint, index) => {
+            if (index !== 6) return waypoint;
+            const flags = (waypoint.flags & 0xC0FF) | (0x3C << 8);
+            return flags === waypoint.flags ? waypoint : { ...waypoint, flags };
+        });
+        return { ...lane, waypoints };
+    });
+}
+

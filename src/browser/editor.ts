@@ -30,7 +30,6 @@ import {
     isLaneEntry,
     isLaneExit,
     parseLaneBank,
-    reverseLaneBank,
     rotatedSide,
     serializeLaneBank,
     type CardinalSide,
@@ -96,6 +95,7 @@ const lstFeedback = requiredElement<HTMLParagraphElement>('lst-feedback');
 const applyLstButton = requiredElement<HTMLButtonElement>('apply-lst');
 const resetLstButton = requiredElement<HTMLButtonElement>('reset-lst');
 const exportLaneBankButton = requiredElement<HTMLButtonElement>('export-lane-bank');
+const exportObjectBankButton = requiredElement<HTMLButtonElement>('export-object-bank');
 const invertCourseButton = requiredElement<HTMLButtonElement>('invert-course');
 const swapScene03LandscapesInput = requiredElement<HTMLInputElement>('swap-scene03-landscapes');
 const resetLegButton = requiredElement<HTMLButtonElement>('reset-leg');
@@ -127,6 +127,8 @@ const routeComparison = requiredElement<HTMLDivElement>('route-comparison');
 
 const LANE_BANK_OFFSET = 0x3AD05;
 const LANE_BANK_SIZE = 0x1E67;
+const OBJECT_BANK_OFFSET = 0x32F1A;
+const OBJECT_BANK_SIZE = 0x7DEA;
 const FINISH_FACE_MATERIAL = 0x1F;
 
 let courseId: CourseId = 'SCENE01';
@@ -143,11 +145,13 @@ let paletteTileId: number | null = null;
 let selectedEntitySlot: number | null = null;
 let currentEntityTable: MapEntityTable | null = null;
 let sharedLaneBank: readonly TileLane[] | null = null;
+let sharedObjectBankData: Uint8Array | null = null;
 let laneBank: readonly TileLane[] | null = null;
 let laneBankSource = 'shared SCENETTP.BIN';
 let laneBankApproximate = false;
 let inversionApplied = false;
 let invertedLaneBankData: Uint8Array | null = null;
+let invertedObjectBankData: Uint8Array | null = null;
 let inversionOriginalLaneBank: readonly TileLane[] | null = null;
 let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
@@ -511,6 +515,7 @@ function updateStatus(): void {
     exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
     exportLstButton.disabled = !workingLstData;
     exportLaneBankButton.disabled = !inversionApplied || !invertedLaneBankData;
+    exportObjectBankButton.disabled = !inversionApplied || !invertedObjectBankData;
     invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
     resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
@@ -1422,6 +1427,7 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     workingData = bytes.slice();
     inversionApplied = false;
     invertedLaneBankData = null;
+    invertedObjectBankData = null;
     inversionOriginalLaneBank = null;
     inversionOriginalLaneBankSource = '';
     inversionOriginalLaneBankApproximate = false;
@@ -1468,6 +1474,19 @@ function downloadLaneBank(): void {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function downloadObjectBank(): void {
+    if (!invertedObjectBankData) return;
+    const buffer = new ArrayBuffer(invertedObjectBankData.byteLength);
+    new Uint8Array(buffer).set(invertedObjectBankData);
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'SCENE03O.BIN';
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function resetCurrentLeg(): void {
     if (!originalData || !workingData || inversionApplied) return;
     const offset = selectedMapOffset();
@@ -1500,6 +1519,7 @@ function restoreInversionLaneBank(): void {
         laneBankApproximate = inversionOriginalLaneBankApproximate;
     }
     invertedLaneBankData = null;
+    invertedObjectBankData = null;
     inversionOriginalLaneBank = null;
     inversionOriginalLaneBankSource = '';
     inversionOriginalLaneBankApproximate = false;
@@ -1512,8 +1532,12 @@ function invertCourse(): void {
         if (!sharedLaneBank || !laneBank) {
             throw new Error('The shared lane bank must be loaded before inverting Pacific.');
         }
-        const reversedLaneBank = reverseLaneBank(sharedLaneBank);
-        const reversedLaneBankData = serializeLaneBank(reversedLaneBank, PRIVATE_LANE_TILE_COUNT);
+        if (!sharedObjectBankData) {
+            throw new Error('The shared object bank must be loaded before inverting Pacific.');
+        }
+        // Use the same lane bank as SCENE01 (shared/un-reversed), with no mirroring or tile patches.
+        const scene03LaneBank = sharedLaneBank;
+        const scene03LaneBankData = serializeLaneBank(scene03LaneBank, PRIVATE_LANE_TILE_COUNT);
         const invertedData = invertPacificCourse(workingData);
         let swappedLandscapes = false;
         let swapWarning = '';
@@ -1528,17 +1552,20 @@ function invertCourse(): void {
         inversionOriginalLaneBank = laneBank;
         inversionOriginalLaneBankSource = laneBankSource;
         inversionOriginalLaneBankApproximate = laneBankApproximate;
-        laneBank = reversedLaneBank;
-        laneBankSource = 'generated reversed SCENETTP.BIN';
+        laneBank = scene03LaneBank;
+        laneBankSource = 'shared SCENETTP.BIN (SCENE01 lane bank)';
         laneBankApproximate = false;
-        invertedLaneBankData = reversedLaneBankData;
-        workingData = invertedData;
+        invertedLaneBankData = scene03LaneBankData;
+        invertedObjectBankData = sharedObjectBankData.slice();
+        let sceneDat = invertedData;
         if (originalLstData) {
             workingLstData = createScene03LstFromScene01(originalLstData);
+            sceneDat = embedPrivateBanksInSceneDat(workingLstData, sceneDat, invertedObjectBankData, invertedLaneBankData);
             lstSourceFilename = 'SCENE03.LST';
             lstFilenameLabel.textContent = 'SCENE03.LST';
             renderLstEditor();
         }
+        workingData = sceneDat;
         inversionApplied = true;
         selectedCell = null;
         selectedEntitySlot = null;
@@ -1548,7 +1575,7 @@ function invertCourse(): void {
         refreshTilePreviews();
         const swapNote = swappedLandscapes ? ' landscapes/palettes swapped (leg 1↔5, set A↔C);' : '';
         const warningNote = swapWarning ? ` Landscape swap skipped: ${swapWarning}` : '';
-        setStatus(`SCENE03 experiment ready ·${swapNote} reversed AI navigation bank generated. Export SCENE03.DAT, SCENE03.LST, and SCENE03P.BIN; routes still need validation.${warningNote}`, Boolean(swapWarning));
+        setStatus(`SCENE03 experiment ready ·${swapNote} using SCENE01 shared lane bank (un-reversed, no mirroring), LST set to private O/P banks (0x57=0), and SCENE03O.BIN/SCENE03P.BIN embedded into SCENE03.DAT. Export SCENE03.DAT and SCENE03.LST (O/P BIN exports are optional). Routes still need validation.${warningNote}`, Boolean(swapWarning));
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -1652,6 +1679,7 @@ sceneImageFileInput.addEventListener('change', async () => {
 });
 exportButton.addEventListener('click', downloadData);
 exportLaneBankButton.addEventListener('click', downloadLaneBank);
+exportObjectBankButton.addEventListener('click', downloadObjectBank);
 exportLstButton.addEventListener('click', downloadLst);
 applyLstButton.addEventListener('click', applyLstStrings);
 resetLstButton.addEventListener('click', resetLstStrings);
@@ -1702,7 +1730,11 @@ const editorReady = (async () => {
     if (!files.datab || files.datab.length < LANE_BANK_OFFSET + LANE_BANK_SIZE) {
         throw new Error('DATAB.DAT does not contain the shared SCENETTP lane bank.');
     }
+    if (!files.datab || files.datab.length < OBJECT_BANK_OFFSET + OBJECT_BANK_SIZE) {
+        throw new Error('DATAB.DAT does not contain the shared SCENETT0 object bank.');
+    }
     sharedLaneBank = parseLaneBank(files.datab.subarray(LANE_BANK_OFFSET, LANE_BANK_OFFSET + LANE_BANK_SIZE));
+    sharedObjectBankData = files.datab.slice(OBJECT_BANK_OFFSET, OBJECT_BANK_OFFSET + OBJECT_BANK_SIZE);
     await loadBuiltInCourse(courseId);
 })();
 
@@ -1995,6 +2027,83 @@ function downloadLst(): void {
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not export LST file.', true);
     }
+}
+
+function embedPrivateBanksInSceneDat(
+    lst: Uint8Array,
+    dat: Uint8Array,
+    oBank: Uint8Array,
+    pBank: Uint8Array,
+): Uint8Array {
+    const SCENE_ARCHIVE_OFFSET = 0x04D0;
+    const SCENE_ARCHIVE_ENTRY_SIZE = 14;
+    const SCENE_ARCHIVE_ENTRY_COUNT = 0x196 / SCENE_ARCHIVE_ENTRY_SIZE;
+
+    const outDat = new Uint8Array(dat.length + oBank.length + pBank.length);
+    outDat.set(dat, 0);
+    outDat.set(oBank, dat.length);
+    outDat.set(pBank, dat.length + oBank.length);
+
+    updateArchiveEntry(lst, 'SCENE03O.BIN', dat.length, oBank.length + 1, SCENE_ARCHIVE_OFFSET, SCENE_ARCHIVE_ENTRY_SIZE, SCENE_ARCHIVE_ENTRY_COUNT);
+    updateArchiveEntry(lst, 'SCENE03P.BIN', dat.length + oBank.length, pBank.length + 1, SCENE_ARCHIVE_OFFSET, SCENE_ARCHIVE_ENTRY_SIZE, SCENE_ARCHIVE_ENTRY_COUNT);
+
+    return outDat;
+}
+
+function updateArchiveEntry(
+    lst: Uint8Array,
+    filename: string,
+    dataOffset: number,
+    storedSize: number,
+    archiveOffset: number,
+    entrySize: number,
+    entryCount: number,
+): void {
+    const [hashH2, hashH1] = hashSceneArchiveFilename(filename);
+    for (let index = 0; index < entryCount; index++) {
+        const entryOffset = archiveOffset + index * entrySize;
+        const entryHashH2 = readWord(lst, entryOffset);
+        const entryHashH1 = readWord(lst, entryOffset + 2);
+        if (entryHashH2 === 0 && entryHashH1 === 0) break;
+        if (entryHashH2 !== hashH2 || entryHashH1 !== hashH1) continue;
+        lst[entryOffset + 4] = 0x65;
+        writeDword(lst, entryOffset + 6, dataOffset >>> 0);
+        writeWord(lst, entryOffset + 10, storedSize & 0xFFFF);
+        return;
+    }
+    throw new Error(`Archive entry for ${filename} was not found in scene LST.`);
+}
+
+function hashSceneArchiveFilename(filename: string): readonly [number, number] {
+    let h1 = 0;
+    for (let index = filename.length - 1; index >= 0; index--) {
+        h1 = (0x101 * h1 + signedByte(filename.charCodeAt(index))) & 0xFFFF;
+    }
+    let h2 = 0;
+    for (let index = 0; index < filename.length - 1; index++) {
+        h2 = (h2 + signedByte(filename.charCodeAt(index)) * index) & 0xFFFF;
+    }
+    return [h2, h1];
+}
+
+function signedByte(value: number): number {
+    return value & 0x80 ? value - 0x100 : value;
+}
+
+function readWord(data: Uint8Array, offset: number): number {
+    return data[offset] | (data[offset + 1] << 8);
+}
+
+function writeWord(data: Uint8Array, offset: number, value: number): void {
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >>> 8) & 0xFF;
+}
+
+function writeDword(data: Uint8Array, offset: number, value: number): void {
+    data[offset] = value & 0xFF;
+    data[offset + 1] = (value >>> 8) & 0xFF;
+    data[offset + 2] = (value >>> 16) & 0xFF;
+    data[offset + 3] = (value >>> 24) & 0xFF;
 }
 
 function parseCourseId(value: string): CourseId | null {

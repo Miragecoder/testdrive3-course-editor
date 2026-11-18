@@ -189,6 +189,9 @@ export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array 
         throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
     }
     const out = scene01Lst.slice();
+    // Generated SCENE03 experiment ships private O/P lane/object banks (SCENE03O.BIN, SCENE03P.BIN).
+    // Mark the scene as owning its O/P sets so the engine loads them instead of shared banks.
+    out[0x57] = 0x00;
     for (let index = 0; index < SCENE_ARCHIVE_ENTRY_COUNT; index++) {
         const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
         const h2 = readWord(out, entryOffset);
