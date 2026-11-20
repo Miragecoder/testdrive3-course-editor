@@ -1832,15 +1832,6 @@ function probeAiPaths(): void {
 
     const singlePath = aPaths.length === 1 && bPaths.length === 1 && aPaths[0].signature === bPaths[0].signature;
     const sameRoute = chosen[0].signature === chosen[1].signature;
-    const summary = document.createElement('p');
-    if (singlePath || sameRoute) {
-        summary.textContent = 'Only a single no-U-turn path was found for these starts (or no distinct alternative route). Both opponents can use the same branch script.';
-    } else if (preferredPair) {
-        summary.textContent = 'Generated two shortest no-U-turn paths that diverge and reconverge (shared start/finish allowed).';
-    } else {
-        summary.textContent = 'Generated two shortest no-U-turn paths with different routes/scripts.';
-    }
-    probeResults.append(summary);
 
     const selection = {
         singlePath,
@@ -1852,65 +1843,34 @@ function probeAiPaths(): void {
     console.log('[path-probe] COPY_SELECTION ' + JSON.stringify({ context: probeContext, selection }));
     console.groupEnd();
 
-    const stats = document.createElement('p');
-    const describe = (path: ProbedPath): string =>
-        `${path.exitEntryLinks} exit/entry link(s), ${path.scriptControlPoints} scripted branch/control point(s), length ${path.steps}`;
-    stats.textContent = sameRoute
-        ? `Path: ${describe(chosen[0])}.`
-        : `Path A: ${describe(chosen[0])}. Path B: ${describe(chosen[1])}.`;
-    probeResults.append(stats);
-
-    chosen.forEach((path, index) => {
-        const entity = probed[index].entity;
-        const card = document.createElement('article');
-        card.className = 'route-script';
-        const title = document.createElement('h3');
-        title.textContent = `Suggested · Opponent ${entity.modelId - 1}`;
-        const details = document.createElement('p');
-        details.textContent = `initial ${path.initialMode}, steps [${path.branchModes.join(', ') || 'none'}], ${path.exitEntryLinks} exit/entry link(s), ${path.scriptControlPoints} scripted control point(s), length ${path.steps}`;
-        const apply = document.createElement('button');
-        apply.type = 'button';
-        apply.className = 'secondary';
-        apply.textContent = 'Apply to this opponent';
-        apply.addEventListener('click', () => {
-            writeOpponentRouteScript(activeData(), mapOffset, (entity.modelId - 2) as 0 | 1, {
-                initialMode: path.initialMode,
-                branchModes: [...path.branchModes],
-                terminates: false,
-            });
-            renderInspectionLayers();
-            updateStatus();
-            probeAiPaths();
+    for (let i = 0; i < probed.length; i++) {
+        writeOpponentRouteScript(activeData(), mapOffset, (probed[i].entity.modelId - 2) as 0 | 1, {
+            initialMode: chosen[i].initialMode,
+            branchModes: [...chosen[i].branchModes],
+            terminates: false,
         });
-        card.append(title, details, apply);
-        probeResults.append(card);
-    });
-
-    if (!sameRoute) {
-        const applyBoth = document.createElement('button');
-        applyBoth.type = 'button';
-        applyBoth.textContent = 'Apply both suggestions';
-        applyBoth.addEventListener('click', () => {
-            writeOpponentRouteScript(activeData(), mapOffset, 0, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
-            writeOpponentRouteScript(activeData(), mapOffset, 1, { initialMode: chosen![1].initialMode, branchModes: [...chosen![1].branchModes], terminates: false });
-            renderInspectionLayers();
-            updateStatus();
-            probeAiPaths();
-        });
-        probeResults.append(applyBoth);
-    } else {
-        const applySame = document.createElement('button');
-        applySame.type = 'button';
-        applySame.textContent = 'Apply to both opponents';
-        applySame.addEventListener('click', () => {
-            writeOpponentRouteScript(activeData(), mapOffset, 0, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
-            writeOpponentRouteScript(activeData(), mapOffset, 1, { initialMode: chosen![0].initialMode, branchModes: [...chosen![0].branchModes], terminates: false });
-            renderInspectionLayers();
-            updateStatus();
-            probeAiPaths();
-        });
-        probeResults.append(applySame);
     }
+
+    renderInspectionLayers();
+    updateStatus();
+
+    const summary = document.createElement('p');
+    if (singlePath || sameRoute) {
+        summary.textContent = 'Generated and applied the same AI path to both opponents.';
+    } else if (preferredPair) {
+        summary.textContent = 'Generated and applied two shortest no-U-turn paths that diverge and reconverge.';
+    } else {
+        summary.textContent = 'Generated and applied two shortest no-U-turn paths with different routes/scripts.';
+    }
+    probeResults.append(summary);
+
+    const describe = (path: ProbedPath): string =>
+        `initial ${path.initialMode}, steps [${path.branchModes.join(', ') || 'none'}], ${path.exitEntryLinks} exit/entry link(s), ${path.scriptControlPoints} scripted branch/control point(s), length ${path.steps}`;
+    const stats = document.createElement('p');
+    stats.textContent = sameRoute
+        ? `Applied path: ${describe(chosen[0])}.`
+        : `Opponent 1: ${describe(chosen[0])}. Opponent 2: ${describe(chosen[1])}.`;
+    probeResults.append(stats);
 }
 
 

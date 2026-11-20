@@ -229,4 +229,21 @@ export function writeOpponentRouteScript(
         const terminatorStep = Math.min(script.branchModes.length + 1, OPPONENT_SCRIPT_LENGTH - 1);
         writeByte(data, offset + terminatorStep, 0, `Opponent ${opponentIndex + 1} route terminator`);
     }
+
+    // Keep the opponent entity's runtime behavior nibble in sync with the script's
+    // initial mode. The engine derives branch mode from (flags >> 8) & 0x0F for the
+    // current waypoint step and consumes script bytes at control points as future
+    // behavior, so a mismatched entity behavior can take the wrong initial branch.
+    const collisionCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, 'Collision entity count');
+    const targetModelId = opponentIndex + 2;
+    for (let slot = 0; slot < collisionCount; slot++) {
+        const flagsOffset = mapOffset + MAP_ENTITY_LAYOUT.flags + slot * 2;
+        const flags = readWord(data, flagsOffset, `Entity ${slot} flags`);
+        if ((flags & 0x3F) !== targetModelId) continue;
+        const syncedFlags = (flags & 0xF0FF) | ((script.initialMode & 0x0F) << 8);
+        if (syncedFlags !== flags) {
+            writeWord(data, flagsOffset, syncedFlags, `Entity ${slot} flags`);
+        }
+        break;
+    }
 }
