@@ -1785,7 +1785,30 @@ function probeAiPaths(): void {
 
     const probed = opponents.map((entity) => {
         console.group(`[path-probe] Opponent ${entity.modelId - 1} (slot ${entity.slot})`);
-        const paths = probeOpponentPaths(workingData!, mapOffset, laneBank!, entity, finishTileId, { maxResults: 12 });
+        const startX = entity.cell & 0x1F;
+        const startY = (entity.cell >> 5) & 0x0F;
+        const startCell = readMapCell(workingData!, mapOffset, startX, startY);
+        const startLane = laneBank!.find((l) => l.tileId === startCell.tileId);
+        const currentWp = entity.waypoint & 0x3F;
+        const wpCandidates = new Set<number>([currentWp]);
+        if (startLane) {
+            for (let i = 0; i < startLane.waypoints.length; i++) wpCandidates.add(i);
+        }
+        let bestWp = currentWp;
+        let bestPaths: typeof probeOpponentPaths extends (...args: any) => infer R ? R : never = [] as any;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (const wp of wpCandidates) {
+            const paths = probeOpponentPaths(workingData!, mapOffset, laneBank!, entity, finishTileId, { maxResults: 12, startWaypointIndex: wp });
+            const top = paths[0];
+            if (top) {
+                const score = top.steps * 100000 + top.scriptControlPoints * 1000 + top.branchModes.length;
+                if (score < bestScore) { bestScore = score; bestWp = wp; bestPaths = paths; }
+            } else if (bestPaths.length === 0 && wp === currentWp) {
+                bestPaths = paths;
+            }
+        }
+        console.log('[path-probe] chosen start waypoint index ' + String(bestWp) + ' (was ' + String(currentWp) + ')');
+        const paths = bestPaths;
         console.log('[path-probe] candidate paths ' + JSON.stringify(paths.map((p) => ({
             initialMode: p.initialMode,
             branchModes: p.branchModes,
@@ -1796,7 +1819,7 @@ function probeAiPaths(): void {
             pathEnd: p.pathCells.slice(-6),
         }))));
         console.groupEnd();
-        return { entity, paths };
+        return { entity, paths, chosenWaypointIndex: bestWp };
     });
 
     if (probed.some((entry) => entry.paths.length === 0)) {
@@ -1844,7 +1867,19 @@ function probeAiPaths(): void {
     console.groupEnd();
 
     for (let i = 0; i < probed.length; i++) {
-        writeOpponentRouteScript(activeData(), mapOffset, (probed[i].entity.modelId - 2) as 0 | 1, {
+        const p = probed[i] as typeof probed[number] & { chosenWaypointIndex: number };
+        const newWp = (p.entity.waypoint & ~0x3F) | (p.chosenWaypointIndex & 0x3F);
+        writeMapEntity(activeData(), mapOffset, p.entity.slot, {
+            flags: p.entity.flags,
+            x: p.entity.x,
+            z: p.entity.z,
+            y: p.entity.y,
+            heading: p.entity.heading,
+            velocity: p.entity.velocity,
+            cell: p.entity.cell,
+            waypoint: newWp,
+        });
+        writeOpponentRouteScript(activeData(), mapOffset, (p.entity.modelId - 2) as 0 | 1, {
             initialMode: chosen[i].initialMode,
             branchModes: [...chosen[i].branchModes],
             terminates: false,

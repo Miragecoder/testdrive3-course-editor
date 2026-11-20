@@ -46,7 +46,7 @@ export function probeOpponentPaths(
     lanes: readonly TileLane[],
     entity: Pick<MapEntity, 'cell' | 'waypoint'>,
     finishTileId: number,
-    options?: { maxResults?: number; stepLimit?: number; maxStates?: number },
+    options?: { maxResults?: number; stepLimit?: number; maxStates?: number; startWaypointIndex?: number },
 ): readonly ProbedPath[] {
     const maxResults = options?.maxResults ?? 16;
     const stepLimit = options?.stepLimit ?? 4096;
@@ -54,7 +54,7 @@ export function probeOpponentPaths(
     const laneByTile = new Map(lanes.map((lane) => [lane.tileId, lane]));
     const startX = entity.cell & 0x1F;
     const startY = (entity.cell >> 5) & 0x0F;
-    const startWp = entity.waypoint & 0x3F;
+    const startWp = options?.startWaypointIndex ?? (entity.waypoint & 0x3F);
 
     console.group(`[route-probe] start cell=${entity.cell} (${startX},${startY}) wp=${startWp} finishTile=0x${finishTileId.toString(16)} maxResults=${maxResults} stepLimit=${stepLimit} maxStates=${maxStates}`);
     if (startX < 0 || startX >= MAP_WIDTH || startY < 0 || startY >= MAP_HEIGHT) {
