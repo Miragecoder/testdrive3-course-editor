@@ -77,73 +77,73 @@ export function LoadObjects(colormap: PixelPair[], trailer: number[], lutMode: n
     //  1 false speed sign
     //  2 false speed sign
     //  3 false speed sign
-    //  4 false sign
-    //  5 false ampel
+    //  4 false highway shield sign (Highway 49)
+    //  5 false traffic lights
     //  6 false stop sign
     //  7 false stop sign
 
     //  8 false 55 speed sign
     //  9 false sign
-    // 10 false sign
+    // 10 false turn right sign
     // 11 false sign
-    // 12 false sign
-    // 13 false sign
-    // 14 false sign
-    // 15 false leuchtturm
+    // 12 false turn left sign
+    // 13 false highway shield sign (Highway 33)
+    // 14 false highway shield sign (Highway 120)
+    // 15 false lighthouse (lights on)
 
-    // 16 false train sign
+    // 16 false railroad crossing gate/barrier
     // 17 true polizei
-    // 18 true lockomotive
-    // 19 true wagon
-    // 20 true wagon
-    // 21 nothing
-    // 22 false sign
-    // 23 false sign
+    // 18 true train (locomotive)
+    // 19 true train (wagon)
+    // 20 true train (wagon)
+    // 21 false lightning impact point (marker)
+    // 22 false chevron right sign
+    // 23 false chevron left sign
 
-    // 24 false sign
+    // 24 false crossroads sign
     // 25 false intersection sign (N, E, S)
-    // 26 false sign
-    // 27 false strommast
+    // 26 false intersection sign (N, W, S)
+    // 27 false power pole
     // 28 false 35 speed sign
-    // 29 false ship
-    // 30 false ship
-    // 31 false sign
+    // 29 false small boat
+    // 30 false sail boat
+    // 31 false right lane branches / entering highway sign
 
-    // 32 false sign
+    // 32 false two right lanes merge / leaving highway sign
     // 33 nothing
-    // 34 nothing
-    // 35 nothing
+    // 34 false rain trigger
+    // 35 false snow trigger
     // 36 nothing
-    // 37 true ???
-    // 38 false rambok?
+    // 37 true mist/fog cloud
+    // 38 false mailbox
     // 39 false ???
 
-    // 40 false baustelle?
+    // 40 false traffic cone
     // 41 false baustelle?
-    // 42 false sign
-    // 43 false human
-    // 44 false fence
+    // 42 false highway shield sign (Highway 5)
+    // 43 false farmer/worker
+    // 44 false road closed barrier/sign
     // 45 false fence
-    // 46 true car
-    // 47 true car
+    // 46 true traffic car (pick-up truck)
+    // 47 true traffic car (blue hatchback)
 
     // 48 true police car
-    // 49 false sign
-    // 50 false sign
-    // 51 true scheune
-    // 52 true building
-    // 53 true building
-    // 54 false building
-    // 55 true car
+    // 49 false "Don't drink and drive" billboard
+    // 50 false dip sign
+    // 51 true farm barn
+    // 52 true white villa
+    // 53 true blue house
+    // 54 false white house with wooden porch
+    // 55 true traffic car (station wagon)
 
-    // 56 true vogel?
+    // 56 true chicken
     // 57 true vogel?
     // 58 false brown cow
     // 59 false street lantern (lights on)
     // 60 false highway shield sign (Highway 1)
     // 61 false highway shield sign (Highway 101)
-    // 62 false sign
-    // 63 false sign
+    // 62 false highway shield sign (Highway 156)
+    // 63 false highway shield sign (Highway 140)
 
     // ------------
 
