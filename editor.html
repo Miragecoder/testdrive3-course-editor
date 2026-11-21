@@ -91,6 +91,9 @@
                 <div class="route-legend">
                     <span><i class="route-key route-opponent-1"></i> Opponent 1 route</span>
                     <span><i class="route-key route-opponent-2"></i> Opponent 2 route</span>
+                    <span><i class="route-key route-marker-0">R0</i> route marker 0</span>
+                    <span><i class="route-key route-marker-1">R1</i> route marker 1</span>
+                    <span><i class="route-key route-marker-2">R2</i> route marker 2</span>
                 </div>
             </section>
 
@@ -252,6 +255,26 @@
                     <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
                     <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
                     <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                </section>
+
+                <section class="panel">
+                    <h2>Route markers</h2>
+                    <p class="subtle">Each leg stores three route-trigger tile IDs in the map header. When the player is on a tile with one of these IDs, the game sets the route index used by the scorecard and per-route records.</p>
+                    <div class="route-marker-controls">
+                        <label>
+                            <span id="route-tile-label-0">Route 0</span> <small>tile ID 0–255</small>
+                            <input id="route-tile-0" type="number" min="0" max="255" value="0">
+                        </label>
+                        <label>
+                            <span id="route-tile-label-1">Route 1</span> <small>tile ID 0–255</small>
+                            <input id="route-tile-1" type="number" min="0" max="255" value="0">
+                        </label>
+                        <label>
+                            <span id="route-tile-label-2">Route 2</span> <small>tile ID 0–255</small>
+                            <input id="route-tile-2" type="number" min="0" max="255" value="0">
+                        </label>
+                    </div>
+                    <p class="subtle">Cells using these tile IDs are highlighted on the map.</p>
                 </section>
 
                 <section class="panel">

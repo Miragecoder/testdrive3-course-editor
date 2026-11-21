@@ -63,6 +63,11 @@ export const SKY_SEEDS_OFFSET = 0x2E;
 export const SKY_FOG_SEED_OFFSET = 0x32;
 export const COLOR_REMAP_TABLE_OFFSET = 0x1F27;
 export const COLOR_REMAP_ENTRY_COUNT = 256;
+// Three tile-type IDs in the map header. When the player's current cell has one of
+// these tile types, the game sets DS_route_index to 0/1/2 (render_world.c).
+// IDA labels these byte_285B5/285B6/285B7 at map offsets 0x37..0x39.
+export const ROUTE_TILES_OFFSET = 0x37;
+export const ROUTE_TILE_COUNT = 3;
 
 export const CANONICAL_NIGHT_SKY_SEEDS = [0x09, 0x08, 0x72, 0x13] as const;
 export const CANONICAL_DAY_SKY_SEEDS = [0x0B, 0x07, 0x79, 0x19] as const;
@@ -166,6 +171,24 @@ export function writeRemapEntry(data: Uint8Array, mapOffset: number, index: numb
     }
     data[offset] = value & 0xFF;
     data[offset + 1] = (value >>> 8) & 0xFF;
+}
+
+export function readRouteTiles(data: Uint8Array, mapOffset: number): [number, number, number] {
+    const offset = mapOffset + ROUTE_TILES_OFFSET;
+    if (offset + ROUTE_TILE_COUNT - 1 >= data.length) {
+        throw new Error('Route tile bytes are outside the DAT file.');
+    }
+    return [data[offset], data[offset + 1], data[offset + 2]];
+}
+
+export function writeRouteTile(data: Uint8Array, mapOffset: number, routeIndex: number, tileId: number): void {
+    validateInteger('Route index', routeIndex, 0, ROUTE_TILE_COUNT - 1);
+    validateInteger('Route tile ID', tileId, 0, 0xFF);
+    const offset = mapOffset + ROUTE_TILES_OFFSET + routeIndex;
+    if (offset >= data.length) {
+        throw new Error('Route tile byte is outside the DAT file.');
+    }
+    data[offset] = tileId;
 }
 
 function validateCellCoordinates(x: number, y: number): void {

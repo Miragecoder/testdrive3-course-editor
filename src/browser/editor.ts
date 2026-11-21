@@ -11,11 +11,13 @@ import {
     readMapCell,
     readMapMode,
     readRemapEntry,
+    readRouteTiles,
     readSkySeeds,
     writeFogSeed,
     writeMapCell,
     writeMapMode,
     writeRemapEntry,
+    writeRouteTile,
     writeSkySeeds,
     type CourseId,
     type MapCell,
@@ -90,6 +92,8 @@ const zoomValue = requiredElement<HTMLSpanElement>('map-zoom-value');
 const tileIdInput = requiredElement<HTMLInputElement>('tile-id');
 const rotationInput = requiredElement<HTMLSelectElement>('tile-rotation');
 const elevationInput = requiredElement<HTMLInputElement>('tile-elevation');
+const routeTileInputs = [0, 1, 2].map((index) => requiredElement<HTMLInputElement>(`route-tile-${index}`));
+const routeTileLabels = [0, 1, 2].map((index) => requiredElement<HTMLSpanElement>(`route-tile-label-${index}`));
 const modeInput = requiredElement<HTMLSelectElement>('map-mode');
 const horizonPreview = requiredElement<HTMLCanvasElement>('horizon-preview');
 const horizonPreviewLabel = requiredElement<HTMLParagraphElement>('horizon-preview-label');
@@ -896,10 +900,17 @@ function renderCell(x: number, y: number): void {
     const button = grid.querySelector<HTMLButtonElement>(`button[data-x="${x}"][data-y="${y}"]`);
     if (!button) return;
 
+    const routeTiles = readRouteTiles(activeData(), selectedMapOffset());
+    const routeMarkerIndex = routeTiles.indexOf(cell.tileId);
     button.style.setProperty('--tile-hue', String((cell.tileId * 137.5) % 360));
     button.querySelector<HTMLSpanElement>('.tile-id')!.textContent = cell.tileId.toString(16).padStart(2, '0').toUpperCase();
-    button.title = `Tile ${cell.tileId.toString(16).padStart(2, '0').toUpperCase()} · rotation ${cell.rotation * 90}° · elevation ${cell.elevation}`;
+    const routeMarkerLabel = routeMarkerIndex === -1 ? '' : ` · route marker ${routeMarkerIndex}`;
+    button.title = `Tile ${cell.tileId.toString(16).padStart(2, '0').toUpperCase()} · rotation ${cell.rotation * 90}° · elevation ${cell.elevation}${routeMarkerLabel}`;
     button.classList.toggle('selected', selectedCell?.x === x && selectedCell.y === y);
+    button.classList.toggle('route-tile-marker', routeMarkerIndex !== -1);
+    button.classList.toggle('route-tile-marker-0', routeMarkerIndex === 0);
+    button.classList.toggle('route-tile-marker-1', routeMarkerIndex === 1);
+    button.classList.toggle('route-tile-marker-2', routeMarkerIndex === 2);
 
     const preview = button.querySelector<HTMLCanvasElement>('.tile-preview')!;
     preview.width = TILE_PREVIEW_SIZE;
@@ -970,6 +981,21 @@ function refreshTilePreviews(): void {
     refreshSceneImageUI();
 }
 
+function refreshRouteMarkerUI(): void {
+    if (!workingData) return;
+    const mapOffset = selectedMapOffset();
+    const routeTiles = readRouteTiles(workingData, mapOffset);
+    const leg = Number(legSelect.value);
+    const lstStrings = workingLstData ? readSceneLstStrings(workingLstData) : null;
+    for (let index = 0; index < routeTileInputs.length; index++) {
+        routeTileInputs[index].value = String(routeTiles[index]);
+        // LST stores 4 names per leg: [main/leg route, alt 1, alt 2, alt 3].
+        // The 3 route-marker tile IDs correspond to the 3 selectable alternatives.
+        const routeName = lstStrings?.routeNames[leg * 4 + index + 1];
+        routeTileLabels[index].textContent = routeName ? `Route ${index}: ${routeName}` : `Route ${index}`;
+    }
+}
+
 function renderGrid(): void {
     if (!workingData) return;
     grid.replaceChildren();
@@ -996,6 +1022,7 @@ function renderGrid(): void {
     renderInspectionLayers();
     const mode = readMapMode(workingData, selectedMapOffset());
     modeInput.value = mode === 0 || mode === 1 ? String(mode) : 'unknown';
+    refreshRouteMarkerUI();
     updateStatus();
 }
 
@@ -1671,7 +1698,10 @@ function updateCellDetails(x: number, y: number, cell: MapCell): void {
         ? `course tile ${(cell.tileId - 0x40).toString(16).padStart(2, '0').toUpperCase()} (0x${tileHex})`
         : `shared tile 0x${tileHex}`;
 
-    const lines = [`Cell (${x}, ${y}) · ${tileLabel}`, `Rotation ${cell.rotation * 90}° · elevation ${cell.elevation}`];
+    const routeTiles = readRouteTiles(activeData(), selectedMapOffset());
+    const routeMarkerIndex = routeTiles.indexOf(cell.tileId);
+    const routeMarkerText = routeMarkerIndex === -1 ? '' : ` · Route marker ${routeMarkerIndex}`;
+    const lines = [`Cell (${x}, ${y}) · ${tileLabel}${routeMarkerText}`, `Rotation ${cell.rotation * 90}° · elevation ${cell.elevation}`];
 
     const lane = laneBank?.find((item) => item.tileId === cell.tileId);
     if (!lane) {
@@ -2013,6 +2043,18 @@ requiredElement<HTMLButtonElement>('reset-cell').addEventListener('click', () =>
     workingData[offset + 1] = originalData[offset + 1];
     updateCellDetails(selectedCell.x, selectedCell.y, readMapCell(activeData(), selectedMapOffset(), selectedCell.x, selectedCell.y));
     renderGrid();
+});
+routeTileInputs.forEach((input, index) => {
+    input.addEventListener('change', () => {
+        if (!workingData) return;
+        try {
+            writeRouteTile(workingData, selectedMapOffset(), index, Number(input.value));
+            renderGrid();
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Could not update route tile.', true);
+            refreshRouteMarkerUI();
+        }
+    });
 });
 const onHorizonInputChanged = () => {
     refreshHorizonPreview();
@@ -2393,6 +2435,7 @@ function renderLstEditor(): void {
             lstRouteNamesEl.append(label);
         }
         updateStatus();
+        refreshRouteMarkerUI();
     } catch (error) {
         lstFeedback.textContent = error instanceof Error ? error.message : 'Could not read scene LST strings.';
         lstFeedback.classList.add('error');
