@@ -3,10 +3,20 @@ import {
     MAP_HEIGHT,
     MAP_RESOURCE_SIZE,
     MAP_WIDTH,
+    applyCanonicalSkySeeds,
+    applySkySeedDeltaForModeToggle,
+    canonicalSkySeedsForMode,
+    fogRemapIndex,
+    readFogSeed,
     readMapCell,
     readMapMode,
+    readRemapEntry,
+    readSkySeeds,
+    writeFogSeed,
     writeMapCell,
     writeMapMode,
+    writeRemapEntry,
+    writeSkySeeds,
     type CourseId,
     type MapCell,
 } from '@shared/course-map';
@@ -20,7 +30,8 @@ import {
     type MapEntityTable,
     type WritableMapEntityFields,
 } from '@shared/map-inspection';
-import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode } from '@shared/color';
+import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode, indexForSkyFog, lookupPair } from '@shared/color';
+import { paletteColor } from '@shared/palette';
 import { LoadObjects, maps } from '@shared/objects';
 import { files, loadFiles } from '@shared/files';
 import {
@@ -80,6 +91,24 @@ const tileIdInput = requiredElement<HTMLInputElement>('tile-id');
 const rotationInput = requiredElement<HTMLSelectElement>('tile-rotation');
 const elevationInput = requiredElement<HTMLInputElement>('tile-elevation');
 const modeInput = requiredElement<HTMLSelectElement>('map-mode');
+const horizonPreview = requiredElement<HTMLCanvasElement>('horizon-preview');
+const horizonPreviewLabel = requiredElement<HTMLParagraphElement>('horizon-preview-label');
+const skySeed2eInput = requiredElement<HTMLInputElement>('sky-seed-2e');
+const skySeed2fInput = requiredElement<HTMLInputElement>('sky-seed-2f');
+const skySeed30Input = requiredElement<HTMLInputElement>('sky-seed-30');
+const skySeed31Input = requiredElement<HTMLInputElement>('sky-seed-31');
+const skyFogSeedInput = requiredElement<HTMLInputElement>('sky-fog-seed');
+const skyRemapIndexInput = requiredElement<HTMLInputElement>('sky-remap-index');
+const skyRemapEntryInput = requiredElement<HTMLInputElement>('sky-remap-entry');
+const applyModeToggleButton = requiredElement<HTMLButtonElement>('apply-mode-toggle');
+const horizonPreserveVariantInput = requiredElement<HTMLInputElement>('horizon-preserve-variant');
+const applyModeCanonicalButton = requiredElement<HTMLButtonElement>('apply-mode-canonical');
+const applyHorizonButton = requiredElement<HTMLButtonElement>('apply-horizon');
+const resetHorizonLegButton = requiredElement<HTMLButtonElement>('reset-horizon-leg');
+const copyHorizonLegsContainer = requiredElement<HTMLDivElement>('copy-horizon-legs');
+const copyHorizonButton = requiredElement<HTMLButtonElement>('copy-horizon');
+const copyHorizonLegSelect = requiredElement<HTMLSelectElement>('copy-horizon-leg');
+const horizonFeedback = requiredElement<HTMLParagraphElement>('horizon-feedback');
 const paintInput = requiredElement<HTMLInputElement>('paint-mode');
 const cellDetails = requiredElement<HTMLDivElement>('cell-details');
 const status = requiredElement<HTMLDivElement>('status');
@@ -469,6 +498,264 @@ async function replaceSceneImageFromFile(file: File, autoFit: boolean): Promise<
     }
 }
 
+function formatHexByte(value: number): string {
+    return `0x${(value & 0xFF).toString(16).padStart(2, '0').toUpperCase()}`;
+}
+
+function formatHexWord(value: number): string {
+    return `0x${(value & 0xFFFF).toString(16).padStart(4, '0').toUpperCase()}`;
+}
+
+function parseIntegerInput(value: string, label: string, min: number, max: number): number {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed.length === 0) {
+        throw new Error(`${label} is required.`);
+    }
+    const parsed = trimmed.startsWith('0x') ? Number.parseInt(trimmed, 16) : Number.parseInt(trimmed, 10);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+        throw new RangeError(`${label} must be an integer from ${min} to ${max}.`);
+    }
+    return parsed;
+}
+
+function setHorizonFeedback(message: string, isError = false): void {
+    horizonFeedback.textContent = message;
+    horizonFeedback.classList.toggle('error', isError);
+}
+
+interface HorizonDraft {
+    mode: 0 | 1;
+    seeds: [number, number, number, number];
+    fogSeed: number;
+    remapValue: number;
+}
+
+function tryParseHorizonDraft(): HorizonDraft | null {
+    if (!workingData) return null;
+    try {
+        const modeValue = modeInput.value === '0' ? 0 : modeInput.value === '1' ? 1 : null;
+        if (modeValue === null) return null;
+        const seeds: [number, number, number, number] = [
+            parseIntegerInput(skySeed2eInput.value, 'Day sky base', 0, 0xFF),
+            parseIntegerInput(skySeed2fInput.value, 'Night sky base', 0, 0xFF),
+            parseIntegerInput(skySeed30Input.value, 'Day sky accent', 0, 0xFF),
+            parseIntegerInput(skySeed31Input.value, 'Night sky accent', 0, 0xFF),
+        ];
+        const fogSeed = parseIntegerInput(skyFogSeedInput.value, 'Gradient selector', 0, 0xFFFF);
+        const remapValue = parseIntegerInput(skyRemapEntryInput.value, 'Horizon color value', 0, 0xFFFF);
+        return { mode: modeValue, seeds, fogSeed, remapValue };
+    } catch {
+        return null;
+    }
+}
+
+function buildPreviewDataFromDraft(data: Uint8Array, mapOffset: number, draft: HorizonDraft): Uint8Array {
+    const preview = data.slice();
+    writeMapMode(preview, mapOffset, draft.mode);
+    writeSkySeeds(preview, mapOffset, draft.seeds);
+    writeFogSeed(preview, mapOffset, draft.fogSeed);
+    writeRemapEntry(preview, mapOffset, fogRemapIndex(draft.fogSeed), draft.remapValue);
+    return preview;
+}
+
+function renderHorizonPreview(data: Uint8Array, mapOffset: number, isDraft = false): void {
+    const ctx = horizonPreview.getContext('2d');
+    if (!ctx) return;
+
+    const mode = readMapMode(data, mapOffset);
+    const seeds = readSkySeeds(data, mapOffset);
+    const fogSeed = readFogSeed(data, mapOffset);
+    const idx = fogRemapIndex(fogSeed);
+    const remapValue = readRemapEntry(data, mapOffset, idx);
+    const table = LoadRemapTable(data, mapOffset);
+
+    const [, skyBaseNight, skyCompDay, skyCompNight] = seeds;
+    const skyBaseDay = seeds[0];
+    const activeBase = mode === 0 ? skyBaseNight : skyBaseDay;
+    const activeComp = mode === 0 ? skyCompNight : skyCompDay;
+
+    const safePaletteColor = (value: number) => paletteColor(Math.max(0, Math.min(255, value & 0xFF)));
+    const baseColor = safePaletteColor(activeComp);
+    const fogPair = lookupPair(table, (fogSeed >>> 8) & 0xFF, fogSeed & 0xFF).toColor();
+    const remapPair = lookupPair(table, (idx >>> 4) & 0x0F, idx & 0x0F).toColor();
+
+    const w = horizonPreview.width;
+    const h = horizonPreview.height;
+    const toCss = (c: { r: number; g: number; b: number }) => {
+        const r = Number.isFinite(c.r) ? c.r : 0;
+        const g = Number.isFinite(c.g) ? c.g : 0;
+        const b = Number.isFinite(c.b) ? c.b : 0;
+        return `rgb(${Math.round(Math.max(0, Math.min(1, r)) * 255)},${Math.round(Math.max(0, Math.min(1, g)) * 255)},${Math.round(Math.max(0, Math.min(1, b)) * 255)})`;
+    };
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, toCss(baseColor));
+    grad.addColorStop(0.58, toCss(baseColor));
+    grad.addColorStop(1, toCss(fogPair));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // subtle horizon line
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.fillRect(0, Math.floor(h * 0.58), w, 1);
+
+    // labeled swatches
+    const drawSwatch = (x: number, color: { r: number; g: number; b: number }, label: string) => {
+        const sw = 16;
+        const sy = h - 22;
+        ctx.fillStyle = toCss(color);
+        ctx.fillRect(x, sy, sw, sw);
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.strokeRect(x + 0.5, sy + 0.5, sw - 1, sw - 1);
+        ctx.fillStyle = 'rgba(10,14,20,0.7)';
+        ctx.fillRect(x + 18, sy - 1, 52, 18);
+        ctx.fillStyle = '#eef2f8';
+        ctx.font = '10px ui-monospace, monospace';
+        ctx.fillText(label, x + 22, sy + 11);
+    };
+    drawSwatch(6, baseColor, 'Sky');
+    drawSwatch(84, fogPair, 'Horizon');
+
+    const modeLabel = mode === 0 ? 'Night' : 'Day';
+    const draftLabel = isDraft ? ' (editing preview)' : '';
+    horizonPreviewLabel.textContent =
+        `${modeLabel}${draftLabel}\nSky accent ${formatHexByte(activeComp)} · horizon color ${formatHexWord(remapValue)} (slot ${formatHexByte(idx)}) · gradient ${formatHexWord(fogSeed)}`;
+}
+
+function refreshHorizonPreview(): void {
+    if (!workingData) {
+        const ctx = horizonPreview.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, horizonPreview.width, horizonPreview.height);
+        horizonPreviewLabel.textContent = 'Open a course to inspect sky & horizon.';
+        return;
+    }
+    const mapOffset = selectedMapOffset();
+    const draft = tryParseHorizonDraft();
+    if (draft) {
+        const previewData = buildPreviewDataFromDraft(workingData, mapOffset, draft);
+        renderHorizonPreview(previewData, mapOffset, true);
+        skyRemapIndexInput.value = formatHexByte(fogRemapIndex(draft.fogSeed));
+    } else {
+        renderHorizonPreview(workingData, mapOffset, false);
+    }
+}
+
+function renderHorizonLegChips(): void {
+    copyHorizonLegsContainer.replaceChildren();
+    const currentLeg = Number(legSelect.value);
+    for (let i = 0; i < 5; i++) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'horizon-leg-chip';
+        if (i === currentLeg) button.classList.add('current');
+        button.textContent = `Leg ${i + 1}`;
+        button.title = `Copy sky & horizon from Leg ${i + 1}`;
+        button.addEventListener('click', () => {
+            copyHorizonLegSelect.value = String(i);
+            copyHorizonFromLeg(i);
+            copyHorizonLegsContainer.querySelectorAll<HTMLButtonElement>('.horizon-leg-chip').forEach((chip, idx) => {
+                chip.classList.toggle('active', idx === i);
+            });
+        });
+        copyHorizonLegsContainer.append(button);
+    }
+}
+
+function refreshHorizonUI(): void {
+    if (!workingData) {
+        skySeed2eInput.value = '';
+        skySeed2fInput.value = '';
+        skySeed30Input.value = '';
+        skySeed31Input.value = '';
+        skyFogSeedInput.value = '';
+        skyRemapIndexInput.value = '';
+        skyRemapEntryInput.value = '';
+        renderHorizonLegChips();
+        refreshHorizonPreview();
+        return;
+    }
+    const mapOffset = selectedMapOffset();
+    const [s2e, s2f, s30, s31] = readSkySeeds(workingData, mapOffset);
+    const fogSeed = readFogSeed(workingData, mapOffset);
+    const idx = fogRemapIndex(fogSeed);
+    const remapValue = readRemapEntry(workingData, mapOffset, idx);
+    skySeed2eInput.value = formatHexByte(s2e);
+    skySeed2fInput.value = formatHexByte(s2f);
+    skySeed30Input.value = formatHexByte(s30);
+    skySeed31Input.value = formatHexByte(s31);
+    skyFogSeedInput.value = formatHexWord(fogSeed);
+    skyRemapIndexInput.value = formatHexByte(idx);
+    skyRemapEntryInput.value = formatHexWord(remapValue);
+    renderHorizonLegChips();
+    renderHorizonPreview(workingData, mapOffset, false);
+}
+
+function applyHorizonInputs(): void {
+    if (!workingData) return;
+    try {
+        const draft = tryParseHorizonDraft();
+        if (!draft) {
+            throw new Error('Please enter valid sky & horizon values (hex like 0x09 or decimal).');
+        }
+        const mapOffset = selectedMapOffset();
+        writeMapMode(workingData, mapOffset, draft.mode);
+        writeSkySeeds(workingData, mapOffset, draft.seeds);
+        writeFogSeed(workingData, mapOffset, draft.fogSeed);
+        writeRemapEntry(workingData, mapOffset, fogRemapIndex(draft.fogSeed), draft.remapValue);
+        setHorizonFeedback('Applied sky & horizon changes to this leg.');
+        updateStatus();
+        refreshTilePreviews();
+    } catch (error) {
+        setHorizonFeedback(error instanceof Error ? error.message : 'Could not apply horizon values.', true);
+    }
+}
+
+function copyHorizonFromLeg(sourceLeg: number): void {
+    if (!workingData) return;
+    try {
+        if (!Number.isInteger(sourceLeg) || sourceLeg < 0 || sourceLeg >= 5) {
+            throw new RangeError('Source leg must be between 1 and 5.');
+        }
+        const targetLeg = Number(legSelect.value);
+        if (sourceLeg === targetLeg) {
+            setHorizonFeedback(`Leg ${sourceLeg + 1} is already selected.`);
+            return;
+        }
+        const targetOffset = selectedMapOffset();
+        const sourceOffset = COURSE_LAYOUTS[courseId].mapOffsets[sourceLeg];
+        writeMapMode(workingData, targetOffset, (readMapMode(workingData, sourceOffset) === 0 ? 0 : 1));
+        writeSkySeeds(workingData, targetOffset, readSkySeeds(workingData, sourceOffset));
+        const fogSeed = readFogSeed(workingData, sourceOffset);
+        writeFogSeed(workingData, targetOffset, fogSeed);
+        const idx = fogRemapIndex(fogSeed);
+        writeRemapEntry(workingData, targetOffset, idx, readRemapEntry(workingData, sourceOffset, idx));
+        setHorizonFeedback(`Copied sky & horizon from Leg ${sourceLeg + 1}.`);
+        updateStatus();
+        refreshTilePreviews();
+    } catch (error) {
+        setHorizonFeedback(error instanceof Error ? error.message : 'Could not copy horizon settings.', true);
+    }
+}
+
+function resetHorizonForCurrentLeg(): void {
+    if (!workingData || !originalData) return;
+    const mapOffset = selectedMapOffset();
+    const originalMode = readMapMode(originalData, mapOffset) === 0 ? 0 : 1;
+    writeMapMode(workingData, mapOffset, originalMode);
+    writeSkySeeds(workingData, mapOffset, readSkySeeds(originalData, mapOffset));
+    const originalFog = readFogSeed(originalData, mapOffset);
+    const currentFog = readFogSeed(workingData, mapOffset);
+    writeFogSeed(workingData, mapOffset, originalFog);
+    const originalIdx = fogRemapIndex(originalFog);
+    writeRemapEntry(workingData, mapOffset, originalIdx, readRemapEntry(originalData, mapOffset, originalIdx));
+    const currentIdx = fogRemapIndex(currentFog);
+    if (currentIdx !== originalIdx) {
+        writeRemapEntry(workingData, mapOffset, currentIdx, readRemapEntry(originalData, mapOffset, currentIdx));
+    }
+    setHorizonFeedback('Reset this leg’s sky & horizon to its original values.');
+    updateStatus();
+    refreshTilePreviews();
+}
+
 function selectedMapOffset(): number {
     const leg = Number(legSelect.value);
     if (!Number.isInteger(leg) || leg < 0 || leg >= 5) {
@@ -520,6 +807,7 @@ function updateStatus(): void {
     resetLegButton.disabled = inversionApplied;
     resetAllButton.disabled = false;
     resetLstButton.disabled = !workingLstData;
+    refreshHorizonUI();
 }
 
 function renderCell(x: number, y: number): void {
@@ -1645,12 +1933,76 @@ requiredElement<HTMLButtonElement>('reset-cell').addEventListener('click', () =>
     updateCellDetails(selectedCell.x, selectedCell.y, readMapCell(activeData(), selectedMapOffset(), selectedCell.x, selectedCell.y));
     renderGrid();
 });
-requiredElement<HTMLButtonElement>('set-mode').addEventListener('click', () => {
+const onHorizonInputChanged = () => {
+    refreshHorizonPreview();
+};
+
+applyModeToggleButton.addEventListener('click', () => {
+    if (!workingData) return;
+    const toMode = modeInput.value === '0' ? 0 : modeInput.value === '1' ? 1 : null;
+    if (toMode === null) return;
+    const mapOffset = selectedMapOffset();
+    const fromMode = readMapMode(workingData, mapOffset) === 0 ? 0 : 1;
+    if (fromMode === toMode) {
+        setHorizonFeedback(`This leg is already set to ${toMode === 0 ? 'night' : 'day'}.`);
+        return;
+    }
+    if (horizonPreserveVariantInput.checked) {
+        applySkySeedDeltaForModeToggle(workingData, mapOffset, fromMode, toMode);
+        const fogSeed = readFogSeed(workingData, mapOffset);
+        const idx = fogRemapIndex(fogSeed);
+        const remap = readRemapEntry(workingData, mapOffset, idx);
+        if (remap > 0x0F0F) {
+            const adjustment = fromMode === 0 ? 0x0101 : -0x0101;
+            writeRemapEntry(workingData, mapOffset, idx, (remap + adjustment) & 0xFFFF);
+        }
+        setHorizonFeedback(`Switched to ${toMode === 0 ? 'night' : 'day'} while keeping this leg’s horizon variant.`);
+    } else {
+        setHorizonFeedback(`Switched to ${toMode === 0 ? 'night' : 'day'} (horizon values kept as-is).`);
+    }
+    writeMapMode(workingData, mapOffset, toMode);
+    updateStatus();
+    refreshTilePreviews();
+});
+
+applyModeCanonicalButton.addEventListener('click', () => {
     if (!workingData) return;
     const mode = modeInput.value === '0' ? 0 : modeInput.value === '1' ? 1 : null;
     if (mode === null) return;
-    writeMapMode(workingData, selectedMapOffset(), mode);
+    const mapOffset = selectedMapOffset();
+    writeMapMode(workingData, mapOffset, mode);
+    applyCanonicalSkySeeds(workingData, mapOffset, mode);
+    setHorizonFeedback(`Applied canonical ${mode === 0 ? 'night' : 'day'} sky colors to this leg.`);
+    updateStatus();
     refreshTilePreviews();
+});
+
+applyHorizonButton.addEventListener('click', applyHorizonInputs);
+resetHorizonLegButton.addEventListener('click', resetHorizonForCurrentLeg);
+
+copyHorizonButton.addEventListener('click', () => {
+    const selected = copyHorizonLegsContainer.querySelector<HTMLButtonElement>('.horizon-leg-chip.active');
+    const leg = selected ? Number.parseInt(selected.textContent?.replace(/\D/g, '') ?? '', 10) - 1 : Number(copyHorizonLegSelect.value);
+    if (Number.isInteger(leg)) copyHorizonFromLeg(leg);
+});
+
+[modeInput, skySeed2eInput, skySeed2fInput, skySeed30Input, skySeed31Input, skyRemapEntryInput].forEach((el) => {
+    el.addEventListener('input', onHorizonInputChanged);
+    el.addEventListener('change', onHorizonInputChanged);
+});
+
+skyFogSeedInput.addEventListener('input', () => {
+    try {
+        const fogSeed = parseIntegerInput(skyFogSeedInput.value, 'Gradient selector', 0, 0xFFFF);
+        const idx = fogRemapIndex(fogSeed);
+        skyRemapIndexInput.value = formatHexByte(idx);
+        if (workingData) {
+            skyRemapEntryInput.value = formatHexWord(readRemapEntry(workingData, selectedMapOffset(), idx));
+        }
+    } catch {
+        skyRemapIndexInput.value = '—';
+    }
+    onHorizonInputChanged();
 });
 probeButton.addEventListener('click', probeAiPaths);
 invertCourseButton.addEventListener('click', invertCourse);

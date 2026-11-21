@@ -5,6 +5,7 @@ import {
     MAP_HEIGHT,
     MAP_RESOURCE_SIZE,
     MAP_WIDTH,
+    applyCanonicalSkySeeds,
     readMapCell,
     readMapMode,
     writeMapCell,
@@ -58,7 +59,9 @@ function createPacificFixture(): Uint8Array {
             rotation: leg === 4 ? (leg + 2) % 4 : (leg + 1) % 4,
             elevation: 12 + leg,
         });
-        writeMapMode(data, mapOffset, leg % 2 as 0 | 1);
+        const mode = leg % 2 as 0 | 1;
+        writeMapMode(data, mapOffset, mode);
+        applyCanonicalSkySeeds(data, mapOffset, mode);
         writeWord(data, mapOffset + 0x32, 0x0203);
         writeWord(data, mapOffset + 0x1F27 + 0x23 * 2, 0x6767 + leg * 0x0101);
         for (let i = 0; i < 4; i++) {

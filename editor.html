@@ -135,18 +135,67 @@
                     <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
                 </section>
 
-                <section class="panel">
-                    <h2>Lighting</h2>
-                    <p class="subtle">Updates the map mode and its matching sky-color seeds.</p>
-                    <label>
-                        Day/night
-                        <select id="map-mode">
-                            <option value="0">Night / dark</option>
-                            <option value="1">Day / light</option>
-                            <option value="unknown" disabled>Unknown</option>
+                <section class="panel horizon-panel">
+                    <h2>Sky &amp; horizon</h2>
+                    <p class="subtle">Per-leg lighting mode and sky/gradient colors for the in-race view. Preview updates as you edit; click Apply to save changes to this leg.</p>
+                    <div class="horizon-preview-wrap">
+                        <canvas id="horizon-preview" width="280" height="72" aria-label="Sky and horizon preview"></canvas>
+                        <p id="horizon-preview-label" class="subtle"></p>
+                    </div>
+
+                    <div class="horizon-section">
+                        <h3 class="horizon-subhead">Mode</h3>
+                        <div class="horizon-mode-row">
+                            <label class="horizon-inline-field">Time of day
+                                <select id="map-mode">
+                                    <option value="0">Night</option>
+                                    <option value="1">Day</option>
+                                    <option value="unknown" disabled>Unknown</option>
+                                </select>
+                            </label>
+                            <button id="apply-mode-toggle" type="button">Switch mode</button>
+                        </div>
+                        <label class="horizon-check"><input id="horizon-preserve-variant" type="checkbox" checked> Keep this leg’s horizon variant when switching (recommended)</label>
+                        <button id="apply-mode-canonical" type="button" class="secondary horizon-secondary-action">Reset to canonical day/night colors</button>
+                    </div>
+
+                    <div class="horizon-section">
+                        <h3 class="horizon-subhead">Horizon gradient</h3>
+                        <div class="horizon-grid">
+                            <label>Day sky base <small>0x2E</small><input id="sky-seed-2e" type="text" inputmode="numeric" spellcheck="false"></label>
+                            <label>Night sky base <small>0x2F</small><input id="sky-seed-2f" type="text" inputmode="numeric" spellcheck="false"></label>
+                            <label>Day sky accent <small>0x30</small><input id="sky-seed-30" type="text" inputmode="numeric" spellcheck="false"></label>
+                            <label>Night sky accent <small>0x31</small><input id="sky-seed-31" type="text" inputmode="numeric" spellcheck="false"></label>
+                        </div>
+                        <div class="horizon-grid">
+                            <label>Gradient selector <small>0x32–0x33</small><input id="sky-fog-seed" type="text" inputmode="numeric" spellcheck="false"></label>
+                            <label>Selected color slot <small>index</small><input id="sky-remap-index" type="text" readonly></label>
+                        </div>
+                        <label>
+                            Horizon color value <small>remap @ index, 0x1F27</small>
+                            <input id="sky-remap-entry" type="text" inputmode="numeric" spellcheck="false">
+                        </label>
+                        <details class="horizon-details">
+                            <summary>About these values</summary>
+                            <p class="subtle">The gradient is defined by per-leg color values (not a single global preset). Legs in the same scene can use different combinations, and the preview shows the resulting sky/horizon colors for the selected mode.</p>
+                        </details>
+                    </div>
+
+                    <div class="button-row button-row-wrap">
+                        <button id="apply-horizon" type="button">Apply changes</button>
+                        <button id="reset-horizon-leg" type="button" class="secondary">Reset this leg</button>
+                    </div>
+
+                    <div class="horizon-section">
+                        <h3 class="horizon-subhead">Match another leg in this scene</h3>
+                        <div id="copy-horizon-legs" class="horizon-leg-chips" aria-label="Copy horizon from leg"></div>
+                        <button id="copy-horizon" type="button" class="secondary horizon-secondary-action" style="margin-top:8px;">Copy selected leg’s sky &amp; horizon</button>
+                        <select id="copy-horizon-leg" hidden aria-hidden="true">
+                            <option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option>
                         </select>
-                    </label>
-                    <button id="set-mode" type="button">Set leg lighting</button>
+                    </div>
+
+                    <p id="horizon-feedback" class="route-editor-feedback" aria-live="polite"></p>
                 </section>
 
                 <section class="panel">
