@@ -156,7 +156,21 @@ const sceneImageFileInput = requiredElement<HTMLInputElement>('scene-image-file'
 const sceneImageFeedback = requiredElement<HTMLParagraphElement>('scene-image-feedback');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
+const clusterSelect = requiredElement<HTMLSelectElement>('cluster-select');
+const clusterSetAnchorButton = requiredElement<HTMLButtonElement>('cluster-set-anchor');
+const clusterCaptureButton = requiredElement<HTMLButtonElement>('cluster-capture');
+const clusterSelectionInfo = requiredElement<HTMLParagraphElement>('cluster-selection-info');
+const clusterStampModeInput = requiredElement<HTMLInputElement>('cluster-stamp-mode');
+const clusterStampUndoButton = requiredElement<HTMLButtonElement>('cluster-stamp-undo');
+const clusterDeleteButton = requiredElement<HTMLButtonElement>('cluster-delete');
+const clusterFeedback = requiredElement<HTMLParagraphElement>('cluster-feedback');
 const showEntitiesInput = requiredElement<HTMLInputElement>('show-entities');
+const entitySnapEnabledInput = requiredElement<HTMLInputElement>('entity-snap-enabled');
+const entitySnapPresetSelect = requiredElement<HTMLSelectElement>('entity-snap-preset');
+const entityMoveOnClickInput = requiredElement<HTMLInputElement>('entity-move-on-click');
+const entitySnapApplyButton = requiredElement<HTMLButtonElement>('entity-snap-apply');
+const entityMoveToCellButton = requiredElement<HTMLButtonElement>('entity-move-to-cell');
+const entitySnapFeedback = requiredElement<HTMLParagraphElement>('entity-snap-feedback');
 const showRoute1Input = requiredElement<HTMLInputElement>('show-route-1');
 const showRoute2Input = requiredElement<HTMLInputElement>('show-route-2');
 const showWaypointsInput = requiredElement<HTMLInputElement>('show-waypoints');
@@ -205,6 +219,34 @@ let inversionOriginalLaneBank: readonly TileLane[] | null = null;
 let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
 let pendingSceneImageReplaceAutoFit = false;
+
+interface TileClusterCell {
+    readonly dx: number;
+    readonly dy: number;
+    readonly cell: MapCell;
+}
+
+interface TileClusterDef {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    cells: readonly TileClusterCell[];
+    builtIn?: boolean;
+}
+
+interface ClusterStampUndo {
+    mapOffset: number;
+    cells: Array<{ x: number; y: number; cell: MapCell }>;
+    label: string;
+}
+
+let clusterAnchor: { x: number; y: number } | null = null;
+let clusterSelectionEnd: { x: number; y: number } | null = null;
+let clusterLibrary: TileClusterDef[] = [];
+let activeClusterId: string | null = null;
+let lastClusterUndo: ClusterStampUndo | null = null;
+let clusterGhostOrigin: { x: number; y: number } | null = null;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
     const element = document.getElementById(id);
@@ -994,6 +1036,283 @@ function refreshTilePreviews(): void {
     refreshSceneImageUI();
 }
 
+function setClusterFeedback(message: string, tone: 'ok' | 'warn' | 'error' | '' = ''): void {
+    clusterFeedback.textContent = message;
+    clusterFeedback.classList.remove('error', 'cluster-feedback-ok', 'cluster-feedback-warn');
+    if (tone === 'error') clusterFeedback.classList.add('error');
+    else if (tone === 'ok') clusterFeedback.classList.add('cluster-feedback-ok');
+    else if (tone === 'warn') clusterFeedback.classList.add('cluster-feedback-warn');
+}
+
+function makeClusterId(): string {
+    return `cluster-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getActiveCluster(): TileClusterDef | null {
+    if (!activeClusterId) return null;
+    return clusterLibrary.find((cluster) => cluster.id === activeClusterId) ?? null;
+}
+
+function initClusterLibrary(): void {
+    if (clusterLibrary.length > 0) return;
+    clusterLibrary = [
+        {
+            id: 'builtin-2x1-road',
+            name: '2×1 same tile (horizontal)',
+            width: 2,
+            height: 1,
+            builtIn: true,
+            cells: [
+                { dx: 0, dy: 0, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+                { dx: 1, dy: 0, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+            ],
+        },
+        {
+            id: 'builtin-2x2-same',
+            name: '2×2 same tile',
+            width: 2,
+            height: 2,
+            builtIn: true,
+            cells: [
+                { dx: 0, dy: 0, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+                { dx: 1, dy: 0, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+                { dx: 0, dy: 1, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+                { dx: 1, dy: 1, cell: { tileId: 0, rotation: 0, elevation: 0 } },
+            ],
+        },
+    ];
+    activeClusterId = clusterLibrary[0]?.id ?? null;
+}
+
+function refreshClusterUI(): void {
+    initClusterLibrary();
+    clusterSelect.replaceChildren();
+    for (const cluster of clusterLibrary) {
+        const option = document.createElement('option');
+        option.value = cluster.id;
+        option.textContent = `${cluster.name} (${cluster.width}×${cluster.height})${cluster.builtIn ? '' : ' · captured'}`;
+        clusterSelect.append(option);
+    }
+    if (activeClusterId && clusterLibrary.some((c) => c.id === activeClusterId)) {
+        clusterSelect.value = activeClusterId;
+    } else {
+        activeClusterId = clusterLibrary[0]?.id ?? null;
+        if (activeClusterId) clusterSelect.value = activeClusterId;
+    }
+
+    clusterStampUndoButton.disabled = !lastClusterUndo;
+    clusterDeleteButton.disabled = !getActiveCluster() || Boolean(getActiveCluster()?.builtIn);
+    updateClusterSelectionInfo();
+}
+
+function updateClusterSelectionInfo(): void {
+    if (!clusterAnchor) {
+        clusterSelectionInfo.textContent = 'Anchor: none. Select a cell and use Set anchor, then Shift+click another cell to define a capture region.';
+        return;
+    }
+    const end = clusterSelectionEnd ?? selectedCell;
+    if (!end) {
+        clusterSelectionInfo.textContent = `Anchor: (${clusterAnchor.x}, ${clusterAnchor.y}). Select another cell to define a capture region.`;
+        return;
+    }
+    const minX = Math.min(clusterAnchor.x, end.x);
+    const maxX = Math.max(clusterAnchor.x, end.x);
+    const minY = Math.min(clusterAnchor.y, end.y);
+    const maxY = Math.max(clusterAnchor.y, end.y);
+    clusterSelectionInfo.textContent = `Anchor: (${clusterAnchor.x}, ${clusterAnchor.y}) · region: (${minX}, ${minY})–(${maxX}, ${maxY}) · ${maxX - minX + 1}×${maxY - minY + 1} cells.`;
+}
+
+function setClusterAnchorToSelected(): void {
+    if (!selectedCell) {
+        setClusterFeedback('Select a map cell before setting a cluster anchor.', 'error');
+        return;
+    }
+    clusterAnchor = { ...selectedCell };
+    clusterSelectionEnd = { ...selectedCell };
+    updateClusterSelectionInfo();
+    setClusterFeedback(`Cluster anchor set to (${clusterAnchor.x}, ${clusterAnchor.y}). Shift+click another cell to extend the capture region.`, 'ok');
+    renderGrid();
+}
+
+function captureClusterFromSelection(): void {
+    if (!workingData) return;
+    if (!clusterAnchor) {
+        setClusterFeedback('Set a cluster anchor first.', 'error');
+        return;
+    }
+    const end = clusterSelectionEnd ?? selectedCell;
+    if (!end) {
+        setClusterFeedback('Select an end cell for the capture region.', 'error');
+        return;
+    }
+    const mapOffset = selectedMapOffset();
+    const minX = Math.min(clusterAnchor.x, end.x);
+    const maxX = Math.max(clusterAnchor.x, end.x);
+    const minY = Math.min(clusterAnchor.y, end.y);
+    const maxY = Math.max(clusterAnchor.y, end.y);
+    const cells: TileClusterCell[] = [];
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            cells.push({
+                dx: x - minX,
+                dy: y - minY,
+                cell: readMapCell(workingData, mapOffset, x, y),
+            });
+        }
+    }
+    const width = maxX - minX + 1;
+    const height = maxY - minY + 1;
+    const name = `Captured ${width}×${height} @ (${minX},${minY})`;
+    const cluster: TileClusterDef = { id: makeClusterId(), name, width, height, cells };
+    clusterLibrary.push(cluster);
+    activeClusterId = cluster.id;
+    refreshClusterUI();
+    setClusterFeedback(`Captured cluster "${name}" with ${cells.length} cells. Arm cluster stamp to place it.`, 'ok');
+}
+
+function deleteActiveCluster(): void {
+    const cluster = getActiveCluster();
+    if (!cluster) return;
+    if (cluster.builtIn) {
+        setClusterFeedback('Built-in clusters cannot be deleted.', 'warn');
+        return;
+    }
+    clusterLibrary = clusterLibrary.filter((c) => c.id !== cluster.id);
+    activeClusterId = clusterLibrary[0]?.id ?? null;
+    refreshClusterUI();
+    setClusterFeedback(`Deleted cluster "${cluster.name}".`, 'ok');
+}
+
+function clearClusterGhost(): void {
+    clusterGhostOrigin = null;
+    grid.querySelectorAll('.cluster-preview, .cluster-preview-oob').forEach((el) => {
+        el.classList.remove('cluster-preview', 'cluster-preview-oob');
+    });
+}
+
+function renderClusterGhost(originX: number, originY: number): void {
+    clearClusterGhost();
+    const cluster = getActiveCluster();
+    if (!cluster || !clusterStampModeInput.checked) return;
+    clusterGhostOrigin = { x: originX, y: originY };
+    for (const entry of cluster.cells) {
+        const x = originX + entry.dx;
+        const y = originY + entry.dy;
+        const inBounds = x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT;
+        if (!inBounds) continue;
+        const cellEl = grid.querySelector<HTMLButtonElement>(`button.tile-cell[data-x="${x}"][data-y="${y}"]`);
+        if (!cellEl) continue;
+        cellEl.classList.add('cluster-preview');
+        const outOfBounds = cluster.cells.some((c) => {
+            const tx = originX + c.dx;
+            const ty = originY + c.dy;
+            return tx < 0 || tx >= MAP_WIDTH || ty < 0 || ty >= MAP_HEIGHT;
+        });
+        if (outOfBounds) cellEl.classList.add('cluster-preview-oob');
+    }
+}
+
+function clusterStampBoundsOk(originX: number, originY: number, cluster: TileClusterDef): boolean {
+    return cluster.cells.every((entry) => {
+        const x = originX + entry.dx;
+        const y = originY + entry.dy;
+        return x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT;
+    });
+}
+
+function applyClusterStamp(originX: number, originY: number): boolean {
+    const cluster = getActiveCluster();
+    if (!cluster) {
+        setClusterFeedback('Select a cluster to stamp.', 'error');
+        return false;
+    }
+    if (!clusterStampModeInput.checked) return false;
+    if (!clusterStampBoundsOk(originX, originY, cluster)) {
+        setClusterFeedback(`Cannot stamp "${cluster.name}" at (${originX}, ${originY}): cluster goes out of bounds.`, 'error');
+        renderClusterGhost(originX, originY);
+        return false;
+    }
+
+    const mapOffset = selectedMapOffset();
+    const undoCells: ClusterStampUndo['cells'] = [];
+    for (const entry of cluster.cells) {
+        const x = originX + entry.dx;
+        const y = originY + entry.dy;
+        undoCells.push({ x, y, cell: readMapCell(activeData(), mapOffset, x, y) });
+    }
+    lastClusterUndo = { mapOffset, cells: undoCells, label: cluster.name };
+    clusterStampUndoButton.disabled = false;
+
+    try {
+        const templateCell = cluster.builtIn ? readCellControls() : null;
+        for (const entry of cluster.cells) {
+            const x = originX + entry.dx;
+            const y = originY + entry.dy;
+            writeMapCell(activeData(), mapOffset, x, y, templateCell ?? entry.cell);
+        }
+    } catch (error) {
+        // Roll back partial writes if any validation failed mid-stamp.
+        for (const item of undoCells) {
+            writeMapCell(activeData(), mapOffset, item.x, item.y, item.cell);
+        }
+        lastClusterUndo = null;
+        clusterStampUndoButton.disabled = true;
+        setClusterFeedback(error instanceof Error ? error.message : 'Could not stamp cluster.', 'error');
+        renderGrid();
+        return false;
+    }
+
+    setClusterFeedback(`Stamped "${cluster.name}" at (${originX}, ${originY}) as a single action.`, 'ok');
+    renderGrid();
+    if (selectedCell) {
+        updateCellDetails(selectedCell.x, selectedCell.y, readMapCell(activeData(), selectedMapOffset(), selectedCell.x, selectedCell.y));
+    }
+    return true;
+}
+
+function undoLastClusterStamp(): void {
+    if (!lastClusterUndo) {
+        setClusterFeedback('No cluster stamp to undo.', 'warn');
+        return;
+    }
+    const undo = lastClusterUndo;
+    if (undo.mapOffset !== selectedMapOffset()) {
+        setClusterFeedback('Last cluster stamp was on a different leg; switch back to that leg to undo it.', 'warn');
+        return;
+    }
+    for (const item of undo.cells) {
+        writeMapCell(activeData(), undo.mapOffset, item.x, item.y, item.cell);
+    }
+    lastClusterUndo = null;
+    clusterStampUndoButton.disabled = true;
+    setClusterFeedback(`Undid cluster stamp "${undo.label}".`, 'ok');
+    renderGrid();
+    if (selectedCell) {
+        updateCellDetails(selectedCell.x, selectedCell.y, readMapCell(activeData(), selectedMapOffset(), selectedCell.x, selectedCell.y));
+    }
+}
+
+function applyClusterSelectionClasses(): void {
+    grid.querySelectorAll('.cluster-anchor, .cluster-selection').forEach((el) => {
+        el.classList.remove('cluster-anchor', 'cluster-selection');
+    });
+    if (!clusterAnchor) return;
+    const anchorEl = grid.querySelector<HTMLButtonElement>(`button.tile-cell[data-x="${clusterAnchor.x}"][data-y="${clusterAnchor.y}"]`);
+    anchorEl?.classList.add('cluster-anchor');
+    const end = clusterSelectionEnd ?? selectedCell;
+    if (!end) return;
+    const minX = Math.min(clusterAnchor.x, end.x);
+    const maxX = Math.max(clusterAnchor.x, end.x);
+    const minY = Math.min(clusterAnchor.y, end.y);
+    const maxY = Math.max(clusterAnchor.y, end.y);
+    for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+            const el = grid.querySelector<HTMLButtonElement>(`button.tile-cell[data-x="${x}"][data-y="${y}"]`);
+            el?.classList.add('cluster-selection');
+        }
+    }
+}
+
 function refreshRouteMarkerUI(): void {
     if (!workingData) return;
     const mapOffset = selectedMapOffset();
@@ -1024,6 +1343,20 @@ function renderGrid(): void {
             button.innerHTML = '<canvas class="tile-preview" aria-hidden="true"></canvas><span class="tile-id"></span>';
             button.addEventListener('click', (event) => {
                 if (consumeSuppressedMapClick()) return;
+                if (clusterStampModeInput.checked && getActiveCluster()) {
+                    selectCell(x, y, { suppressPaint: true });
+                    applyClusterStamp(x, y);
+                    return;
+                }
+                if (entityMoveOnClickInput.checked && selectedEntitySlot !== null) {
+                    selectCell(x, y, { suppressPaint: true });
+                    moveSelectedEntityToCell(x, y, { source: 'click' });
+                    return;
+                }
+                if (event.shiftKey && clusterAnchor) {
+                    clusterSelectionEnd = { x, y };
+                    updateClusterSelectionInfo();
+                }
                 selectCell(x, y);
             });
             button.addEventListener('dblclick', (event) => {
@@ -1044,15 +1377,20 @@ function renderGrid(): void {
                     }
                 }
             });
-            button.addEventListener('mouseenter', () => setHoveredCell(x, y));
+            button.addEventListener('mouseenter', () => {
+                setHoveredCell(x, y);
+                if (clusterStampModeInput.checked) renderClusterGhost(x, y);
+            });
             button.addEventListener('mouseleave', () => {
                 if (hoveredCell?.x === x && hoveredCell.y === y) setHoveredCell(null, null);
+                if (clusterGhostOrigin?.x === x && clusterGhostOrigin.y === y) clearClusterGhost();
             });
             grid.append(button);
             renderCell(x, y);
         }
     }
 
+    applyClusterSelectionClasses();
     renderInspectionLayers();
     const mode = readMapMode(workingData, selectedMapOffset());
     modeInput.value = mode === 0 || mode === 1 ? String(mode) : 'unknown';
@@ -1792,6 +2130,122 @@ function entityMarkerText(entity: MapEntity): string {
     return '.';
 }
 
+function setEntitySnapFeedback(message: string, tone: 'ok' | 'warn' | 'error' | '' = ''): void {
+    entitySnapFeedback.textContent = message;
+    entitySnapFeedback.classList.remove('error', 'cluster-feedback-ok', 'cluster-feedback-warn');
+    if (tone === 'error') entitySnapFeedback.classList.add('error');
+    else if (tone === 'ok') entitySnapFeedback.classList.add('cluster-feedback-ok');
+    else if (tone === 'warn') entitySnapFeedback.classList.add('cluster-feedback-warn');
+}
+
+function worldPositionForCell(cellX: number, cellY: number, offsetX = 0.5, offsetY = 0.5): { x: number; z: number } {
+    const mapX = cellX + offsetX;
+    const mapY = cellY + offsetY;
+    const z = Math.round(mapX * 1024) & 0xFFFF;
+    const x = Math.round((MAP_HEIGHT - mapY) * 1024) & 0xFFFF;
+    return { x, z };
+}
+
+function laneRoadSidesForCell(cellX: number, cellY: number): CardinalSide[] {
+    if (!workingData || !laneBank) return [];
+    const cell = readMapCell(workingData, selectedMapOffset(), cellX, cellY);
+    const lane = laneBank.find((item) => item.tileId === cell.tileId);
+    if (!lane) return [];
+    const roadSides = new Set<CardinalSide>();
+    for (const wp of lane.waypoints) {
+        if (isLaneEntry(wp) || isLaneExit(wp)) {
+            roadSides.add(rotatedSide(cell.rotation, wp.flags & 3) as CardinalSide);
+        }
+    }
+    return [0, 1, 2, 3].filter((side) => roadSides.has(side as CardinalSide)) as CardinalSide[];
+}
+
+function snapOffsetForPreset(cellX: number, cellY: number, preset: string): { offsetX: number; offsetY: number; label: string } {
+    if (preset === 'cell-center') return { offsetX: 0.5, offsetY: 0.5, label: 'cell center' };
+    if (preset === 'roadside-n') return { offsetX: 0.5, offsetY: 0.2, label: 'north roadside' };
+    if (preset === 'roadside-e') return { offsetX: 0.8, offsetY: 0.5, label: 'east roadside' };
+    if (preset === 'roadside-s') return { offsetX: 0.5, offsetY: 0.8, label: 'south roadside' };
+    if (preset === 'roadside-w') return { offsetX: 0.2, offsetY: 0.5, label: 'west roadside' };
+    if (preset === 'nearest-lane') {
+        const roadSides = laneRoadSidesForCell(cellX, cellY);
+        // Pick a roadside: prefer a side that is NOT a road side (adjacent to road), else center.
+        const nonRoadSides = ([0, 1, 2, 3] as CardinalSide[]).filter((side) => !roadSides.includes(side));
+        const candidate = nonRoadSides[0] ?? roadSides[0];
+        if (candidate === undefined) return { offsetX: 0.5, offsetY: 0.5, label: 'cell center (no lane data)' };
+        if (candidate === 0) return { offsetX: 0.5, offsetY: 0.2, label: 'nearest lane roadside (north)' };
+        if (candidate === 1) return { offsetX: 0.8, offsetY: 0.5, label: 'nearest lane roadside (east)' };
+        if (candidate === 2) return { offsetX: 0.5, offsetY: 0.8, label: 'nearest lane roadside (south)' };
+        return { offsetX: 0.2, offsetY: 0.5, label: 'nearest lane roadside (west)' };
+    }
+    return { offsetX: 0.5, offsetY: 0.5, label: 'free/cell center fallback' };
+}
+
+function snapEntityPositionToCell(cellX: number, cellY: number): { x: number; z: number; label: string; snapped: boolean } {
+    const preset = entitySnapEnabledInput.checked ? entitySnapPresetSelect.value : 'free';
+    if (preset === 'free') {
+        const pos = worldPositionForCell(cellX, cellY, 0.5, 0.5);
+        return { ...pos, label: 'free placement (cell center)', snapped: false };
+    }
+    const snap = snapOffsetForPreset(cellX, cellY, preset);
+    const pos = worldPositionForCell(cellX, cellY, snap.offsetX, snap.offsetY);
+    return { ...pos, label: snap.label, snapped: true };
+}
+
+function moveSelectedEntityToCell(cellX: number, cellY: number, opts?: { source?: string }): boolean {
+    if (selectedEntitySlot === null) {
+        setEntitySnapFeedback('Select an entity before moving it.', 'error');
+        return false;
+    }
+    if (!currentEntityTable) {
+        setEntitySnapFeedback('Entity table is not loaded.', 'error');
+        return false;
+    }
+    const entity = currentEntityTable.entities.find((item) => item.slot === selectedEntitySlot);
+    if (!entity) {
+        setEntitySnapFeedback('Selected entity was not found in the current leg.', 'error');
+        return false;
+    }
+
+    const snapped = snapEntityPositionToCell(cellX, cellY);
+    writeMapEntity(activeData(), selectedMapOffset(), entity.slot, {
+        flags: entity.flags,
+        x: snapped.x,
+        z: snapped.z,
+        y: entity.y,
+        heading: entity.heading,
+        velocity: entity.velocity,
+        cell: (cellY << 5) | cellX,
+        waypoint: entity.waypoint,
+    });
+    renderInspectionLayers();
+    updateStatus();
+    if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity' && propertiesPopupTarget.slot === entity.slot) {
+        refreshPropertiesPopup();
+    }
+    const source = opts?.source === 'click' ? 'map click' : 'action';
+    setEntitySnapFeedback(`Moved entity #${entity.slot} to cell (${cellX}, ${cellY}) via ${source}${snapped.snapped ? ` (${snapped.label})` : ' (free placement)'}.`, 'ok');
+    return true;
+}
+
+function snapSelectedEntityInPlace(): void {
+    if (selectedEntitySlot === null) {
+        setEntitySnapFeedback('Select an entity before snapping it.', 'error');
+        return;
+    }
+    if (!currentEntityTable) {
+        setEntitySnapFeedback('Entity table is not loaded.', 'error');
+        return;
+    }
+    const entity = currentEntityTable.entities.find((item) => item.slot === selectedEntitySlot);
+    if (!entity) {
+        setEntitySnapFeedback('Selected entity was not found in the current leg.', 'error');
+        return;
+    }
+    const cellX = entity.cell & 0x1F;
+    const cellY = (entity.cell >> 5) & 0x0F;
+    moveSelectedEntityToCell(cellX, cellY, { source: 'snap' });
+}
+
 function consumeSuppressedMapClick(): boolean {
     if (!suppressNextMapClick) return false;
     suppressNextMapClick = false;
@@ -1898,9 +2352,9 @@ function refreshPropertiesPopup(): void {
     positionPropertiesPopup();
 }
 
-function selectCell(x: number, y: number, options?: { openPopup?: boolean; anchorClientX?: number; anchorClientY?: number }): void {
+function selectCell(x: number, y: number, options?: { openPopup?: boolean; anchorClientX?: number; anchorClientY?: number; suppressPaint?: boolean }): void {
     selectedCell = { x, y };
-    if (paintInput.checked) {
+    if (paintInput.checked && !options?.suppressPaint) {
         writeMapCell(activeData(), selectedMapOffset(), x, y, readCellControls());
         updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
         renderGrid();
@@ -2067,6 +2521,9 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     paletteTileId = null;
     filenameLabel.textContent = sourceFilename;
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
+    lastClusterUndo = null;
+    clusterStampUndoButton.disabled = true;
+    clearClusterGhost();
     loadCourseLst(id);
     refreshTilePreviews();
 }
@@ -2126,6 +2583,10 @@ function resetCurrentLeg(): void {
     selectedCell = null;
     closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
+    if (lastClusterUndo?.mapOffset === offset) {
+        lastClusterUndo = null;
+        clusterStampUndoButton.disabled = true;
+    }
     refreshTilePreviews();
 }
 
@@ -2143,6 +2604,9 @@ function resetAll(): void {
     selectedCell = null;
     closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
+    lastClusterUndo = null;
+    clusterStampUndoButton.disabled = true;
+    clearClusterGhost();
     refreshTilePreviews();
 }
 
@@ -2324,6 +2788,15 @@ document.addEventListener('keydown', (event) => {
         closePropertiesPopup();
         return;
     }
+    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
+        const target = event.target as HTMLElement | null;
+        const inTextInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+        if (!inTextInput && lastClusterUndo) {
+            event.preventDefault();
+            undoLastClusterStamp();
+            return;
+        }
+    }
     if (event.key === 'Enter' && !isPropertiesPopupOpen()) {
         const target = event.target as HTMLElement | null;
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
@@ -2442,6 +2915,7 @@ showWaypointsInput.addEventListener('change', () => {
 });
 zoomInput.addEventListener('input', applyMapZoom);
 applyMapZoom();
+refreshClusterUI();
 entitySelect.addEventListener('change', () => {
     const slot = entitySelect.value === '' ? null : Number(entitySelect.value);
     if (slot === null) {
@@ -2555,6 +3029,44 @@ skyFogSeedInput.addEventListener('input', () => {
 });
 probeButton.addEventListener('click', probeAiPaths);
 invertCourseButton.addEventListener('click', invertCourse);
+clusterSelect.addEventListener('change', () => {
+    activeClusterId = clusterSelect.value || null;
+    refreshClusterUI();
+    clearClusterGhost();
+});
+clusterSetAnchorButton.addEventListener('click', setClusterAnchorToSelected);
+clusterCaptureButton.addEventListener('click', captureClusterFromSelection);
+clusterDeleteButton.addEventListener('click', deleteActiveCluster);
+clusterStampUndoButton.addEventListener('click', undoLastClusterStamp);
+clusterStampModeInput.addEventListener('change', () => {
+    if (!clusterStampModeInput.checked) {
+        clearClusterGhost();
+    } else {
+        setClusterFeedback(getActiveCluster() ? `Cluster stamp armed: "${getActiveCluster()!.name}". Click the map to place it.` : 'Select a cluster to stamp.', getActiveCluster() ? 'ok' : 'warn');
+    }
+});
+
+entitySnapApplyButton.addEventListener('click', snapSelectedEntityInPlace);
+entityMoveToCellButton.addEventListener('click', () => {
+    if (!selectedCell) {
+        setEntitySnapFeedback('Select a map cell first, then move the entity to it.', 'error');
+        return;
+    }
+    moveSelectedEntityToCell(selectedCell.x, selectedCell.y, { source: 'selected cell' });
+});
+entitySnapPresetSelect.addEventListener('change', () => {
+    if (entitySnapPresetSelect.value === 'free') {
+        setEntitySnapFeedback('Free placement selected: entity moves use cell center without roadside snapping.', 'warn');
+    } else {
+        setEntitySnapFeedback(`Snap preset: ${entitySnapPresetSelect.selectedOptions[0]?.textContent ?? entitySnapPresetSelect.value}.`, 'ok');
+    }
+});
+entityMoveOnClickInput.addEventListener('change', () => {
+    setEntitySnapFeedback(entityMoveOnClickInput.checked
+        ? 'Move-entity-on-click enabled. Click a map cell to move the selected entity (snap preset applies).'
+        : 'Move-entity-on-click disabled. Map clicks use normal selection/paint behavior.', entityMoveOnClickInput.checked ? 'ok' : '');
+});
+
 paletteBankSelect.addEventListener('change', renderTilePalette);
 sceneImageSlotSelect.addEventListener('change', () => {
     const slot = selectedSceneImageSlot();
@@ -2611,6 +3123,9 @@ fileInput.addEventListener('change', async () => {
         paletteTileId = null;
         filenameLabel.textContent = sourceFilename;
         cellDetails.textContent = 'Select a cell to inspect or edit it.';
+        lastClusterUndo = null;
+        clusterStampUndoButton.disabled = true;
+        clearClusterGhost();
         if (!workingLstData) loadCourseLst(selectedCourse);
         refreshTilePreviews();
     } catch (error) {

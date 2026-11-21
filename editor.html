@@ -100,6 +100,30 @@
                                 <p class="subtle">Previews are top-down renders of the viewer's reconstructed 3D tile models.</p>
                                 <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
                             </section>
+
+                            <section class="panel">
+                                <h2>Tile clusters / prefabs</h2>
+                                <p class="subtle">Stamp multi-cell tile patterns in one action. Clusters are tile-only (tile ID, rotation, elevation). Select an anchor cell, Shift+click to define the opposite corner, capture the region, then arm a stamp and click the map to place it.</p>
+                                <label>
+                                    Cluster
+                                    <select id="cluster-select" aria-label="Tile cluster"></select>
+                                </label>
+                                <div class="button-row button-row-wrap">
+                                    <button id="cluster-set-anchor" type="button" class="secondary">Set anchor</button>
+                                    <button id="cluster-capture" type="button" class="secondary">Capture anchor→selected</button>
+                                </div>
+                                <p id="cluster-selection-info" class="subtle">Anchor: none. Select a cell and use Set anchor, then Shift+click another cell to define a capture region.</p>
+                                <label class="paint-toggle mode-toggle">
+                                    <input id="cluster-stamp-mode" type="checkbox">
+                                    Arm cluster stamp
+                                </label>
+                                <p class="subtle">When armed, hovering shows a ghost preview and clicking places the cluster as a single undoable stamp. Out-of-bounds stamps are blocked.</p>
+                                <div class="button-row button-row-wrap">
+                                    <button id="cluster-stamp-undo" type="button" class="secondary" disabled>Undo last stamp</button>
+                                    <button id="cluster-delete" type="button" class="secondary">Delete cluster</button>
+                                </div>
+                                <p id="cluster-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                            </section>
                         </section>
 
                         <section class="toolbox-mode" id="toolbox-mode-entities" role="tabpanel" aria-labelledby="toolbox-tab-entities" data-mode="entities" hidden>
@@ -114,6 +138,36 @@
                                 <p id="entity-summary" class="subtle">Loading entity records…</p>
                                 <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
                                 <p class="subtle">Select an entity from the list or map marker. Right-click, double-click, or press Enter on a marker/cell to open properties. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Roadside snap</h2>
+                                <p class="subtle">Snap entity placement to road-adjacent anchors. Use with "Move entity on click" to place the selected entity at a clicked cell, or apply snap to the selected entity's current cell.</p>
+                                <label class="paint-toggle mode-toggle">
+                                    <input id="entity-snap-enabled" type="checkbox" checked>
+                                    Snap to roadside anchors
+                                </label>
+                                <label>
+                                    Snap preset
+                                    <select id="entity-snap-preset">
+                                        <option value="nearest-lane">Nearest lane waypoint</option>
+                                        <option value="cell-center">Cell center</option>
+                                        <option value="roadside-n">Roadside north</option>
+                                        <option value="roadside-e">Roadside east</option>
+                                        <option value="roadside-s">Roadside south</option>
+                                        <option value="roadside-w">Roadside west</option>
+                                        <option value="free">Free (no snap)</option>
+                                    </select>
+                                </label>
+                                <label class="paint-toggle mode-toggle">
+                                    <input id="entity-move-on-click" type="checkbox">
+                                    Move selected entity on map click
+                                </label>
+                                <div class="button-row button-row-wrap">
+                                    <button id="entity-snap-apply" type="button" class="secondary">Snap selected entity</button>
+                                    <button id="entity-move-to-cell" type="button" class="secondary">Move to selected cell</button>
+                                </div>
+                                <p id="entity-snap-feedback" class="route-editor-feedback" aria-live="polite"></p>
                             </section>
 
                             <section class="panel">

@@ -5,7 +5,7 @@
 - [x] Phase 1 - App shell / layout refactor
 - [x] Phase 2 - Toolbox modes and panel regrouping
 - [x] Phase 3 - Map interaction and properties popup
-- [ ] Phase 4 - Pattern-aware editing
+- [x] Phase 4 - Pattern-aware editing
 - [ ] Phase 5 - Polish and regression pass
 
 ## Context
@@ -268,6 +268,24 @@ Separate page: PLAYDISK.DAT editor
 - Popup currently supports cell and entity targets; route-marker/route-decision properties could be added as contextual targets if needed, but route marker editing remains available in Routes & AI.
 - Click-outside closes the popup and suppresses the next cell/entity marker click to avoid accidental mutation; consider a softer behavior if UX feedback prefers selection changes.
 - Pan uses Space+drag and middle-drag; touch/mobile pan behavior and pointer capture edge cases should be checked during Phase 5 polish.
+- Run `npm run build` / `npm run typecheck` in a Node-enabled environment before shipping.
+
+## Phase 4 completion notes
+
+**Completed (2026-11-21):**
+- Added **Tile clusters/prefabs** in Tiles mode (`editor.html`, `src/browser/editor.ts`, `src/browser/editor.css`): in-memory cluster library with built-in same-tile templates and captured clusters, capture from anchor→selected rectangular region (Shift+click extends selection), armed cluster stamp mode with hover ghost preview, out-of-bounds stamp blocking, and single-step undo for the last cluster stamp (button + Ctrl/Cmd+Z when not in a text input). Cluster stamps are tile-only (tile ID, rotation, elevation) and apply as one action.
+- Added **Roadside snap points** in Entities mode: snap toggle, preset anchors (nearest lane roadside from lane connectivity, cell center, north/east/south/west roadside, free placement fallback), "Move selected entity on map click" toggle, and actions to snap the selected entity in place or move it to the selected cell. Entity moves update world X/Z and cell fields and preserve existing entity editing behavior.
+- Kept **Highway shield sign generator** as a clearly labeled stub UI only (no real 3D/object generation). PLAYDISK.DAT editor and SCENE03/Course Tools remain outside the scene-editing toolbox.
+
+**Verification performed:**
+- Static ID check: all `requiredElement(...)`/`getElementById(...)` IDs referenced by `src/browser/editor.ts` exist in `editor.html`; no duplicate HTML IDs found; all 14 new Phase 4 control IDs present.
+- `npm run build` / `npm run typecheck` **not run**: Node/npm are unavailable in this sandbox (`node`/`npm` not found in PATH). Manual static review of changed HTML/CSS/TS performed, including unused-local scan for newly added functions.
+
+**Follow-ups / Phase 5 notes:**
+- Cluster ghost preview currently highlights target cells; it does not render tile preview thumbnails inside the ghost. Consider richer preview and drag-to-stamp behavior during Phase 5 polish if desired.
+- Cluster library is session-only and resets on reload; consider localStorage persistence/import-export in a later phase.
+- Roadside snap presets are heuristic (cell offsets and lane-side-based nearest roadside). They improve placement but do not block manual/free placement; validate against real SCENE01/SCENE02 roadside object patterns during Phase 5.
+- `entity-move-on-click` is a global toggle while enabled; consider scoping it more explicitly to Entities mode or adding stronger visual affordance during Phase 5 polish.
 - Run `npm run build` / `npm run typecheck` in a Node-enabled environment before shipping.
 
 ## Pickup instructions for future sessions

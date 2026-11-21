@@ -812,3 +812,22 @@ select, input[type="number"] { padding: 8px 10px; }
 .horizon-leg-chip.active { border-color: #d6a24a; background: #2a2418; color: #ffe8b8; }
 .horizon-leg-chip.current { box-shadow: inset 0 0 0 1px #4a90d9; }
 #horizon-preview-label { white-space: pre-line; }
+
+.tile-cell.cluster-preview {
+    outline: 2px solid rgba(214, 162, 74, 0.95);
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 999px rgba(214, 162, 74, 0.18);
+    z-index: 2;
+}
+.tile-cell.cluster-preview-oob {
+    outline-color: rgba(255, 107, 107, 0.95);
+    box-shadow: inset 0 0 0 999px rgba(255, 107, 107, 0.22);
+}
+.tile-cell.cluster-anchor {
+    box-shadow: inset 0 0 0 2px rgba(74, 144, 217, 0.95);
+}
+.tile-cell.cluster-selection {
+    box-shadow: inset 0 0 0 999px rgba(74, 144, 217, 0.12);
+}
+.cluster-feedback-ok { color: #8fd19e; }
+.cluster-feedback-warn { color: #ffcc80; }
