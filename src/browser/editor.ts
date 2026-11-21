@@ -1652,11 +1652,25 @@ function refreshSelectedEntityMarker(): void {
     });
 }
 
+const SCENE01_OBJECT_NAMES: Partial<Record<number, string>> = {
+    0x08: '55 Speed Sign',
+    0x19: 'Intersection sign (N, E, S)',
+    0x1c: '35 Speed Sign',
+    0x3a: 'Brown cow',
+    0x3b: 'Street lantern (lights on)',
+    0x3c: 'Highway shield sign (Highway 1)',
+    0x3d: 'Highway shield sign (Highway 101)',
+};
+
 function entityName(modelId: number): string {
     if (modelId === 0x01) return 'Likely player start';
     if (modelId === 0x02) return 'Opponent 1';
     if (modelId === 0x03) return 'Opponent 2';
     if (modelId === 0x11 || modelId === 0x30) return 'Police';
+    if (courseId === 'SCENE01') {
+        const sceneName = SCENE01_OBJECT_NAMES[modelId];
+        if (sceneName) return sceneName;
+    }
     return `Object 0x${modelId.toString(16).padStart(2, '0')}`;
 }
 

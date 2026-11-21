@@ -82,7 +82,7 @@ export function LoadObjects(colormap: PixelPair[], trailer: number[], lutMode: n
     //  6 false stop sign
     //  7 false stop sign
 
-    //  8 false speed sign
+    //  8 false 55 speed sign
     //  9 false sign
     // 10 false sign
     // 11 false sign
@@ -101,10 +101,10 @@ export function LoadObjects(colormap: PixelPair[], trailer: number[], lutMode: n
     // 23 false sign
 
     // 24 false sign
-    // 25 false sign
+    // 25 false intersection sign (N, E, S)
     // 26 false sign
     // 27 false strommast
-    // 28 false sign
+    // 28 false 35 speed sign
     // 29 false ship
     // 30 false ship
     // 31 false sign
@@ -138,10 +138,10 @@ export function LoadObjects(colormap: PixelPair[], trailer: number[], lutMode: n
 
     // 56 true vogel?
     // 57 true vogel?
-    // 58 false cow
-    // 59 false object?
-    // 60 false sign
-    // 61 false sign
+    // 58 false brown cow
+    // 59 false street lantern (lights on)
+    // 60 false highway shield sign (Highway 1)
+    // 61 false highway shield sign (Highway 101)
     // 62 false sign
     // 63 false sign
 
