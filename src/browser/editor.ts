@@ -93,6 +93,7 @@ const elevationInput = requiredElement<HTMLInputElement>('tile-elevation');
 const modeInput = requiredElement<HTMLSelectElement>('map-mode');
 const horizonPreview = requiredElement<HTMLCanvasElement>('horizon-preview');
 const horizonPreviewLabel = requiredElement<HTMLParagraphElement>('horizon-preview-label');
+const horizonPreviewWarning = requiredElement<HTMLParagraphElement>('horizon-preview-warning');
 const skySeed2eInput = requiredElement<HTMLInputElement>('sky-seed-2e');
 const skySeed2fInput = requiredElement<HTMLInputElement>('sky-seed-2f');
 const skySeed30Input = requiredElement<HTMLInputElement>('sky-seed-30');
@@ -108,6 +109,8 @@ const resetHorizonLegButton = requiredElement<HTMLButtonElement>('reset-horizon-
 const copyHorizonLegsContainer = requiredElement<HTMLDivElement>('copy-horizon-legs');
 const copyHorizonButton = requiredElement<HTMLButtonElement>('copy-horizon');
 const copyHorizonLegSelect = requiredElement<HTMLSelectElement>('copy-horizon-leg');
+const horizonPresetSelect = requiredElement<HTMLSelectElement>('horizon-preset');
+const applyHorizonPresetButton = requiredElement<HTMLButtonElement>('apply-horizon-preset');
 const horizonFeedback = requiredElement<HTMLParagraphElement>('horizon-feedback');
 const paintInput = requiredElement<HTMLInputElement>('paint-mode');
 const cellDetails = requiredElement<HTMLDivElement>('cell-details');
@@ -558,6 +561,16 @@ function buildPreviewDataFromDraft(data: Uint8Array, mapOffset: number, draft: H
     return preview;
 }
 
+function getHorizonGradientWarning(activeComp: number): string | null {
+    const warningWindow = 48;
+    for (let step = 1; step <= warningWindow; step++) {
+        if (((activeComp + step) & 0xFF) === 0x00) {
+            return 'In-game VGA gradient may cross palette 0x00 (black), which can appear as a dark/black band. Try a different sky accent or preset.';
+        }
+    }
+    return null;
+}
+
 function renderHorizonPreview(data: Uint8Array, mapOffset: number, isDraft = false): void {
     const ctx = horizonPreview.getContext('2d');
     if (!ctx) return;
@@ -569,34 +582,60 @@ function renderHorizonPreview(data: Uint8Array, mapOffset: number, isDraft = fal
     const remapValue = readRemapEntry(data, mapOffset, idx);
     const table = LoadRemapTable(data, mapOffset);
 
-    const [, skyBaseNight, skyCompDay, skyCompNight] = seeds;
-    const skyBaseDay = seeds[0];
-    const activeBase = mode === 0 ? skyBaseNight : skyBaseDay;
+    const [, , skyCompDay, skyCompNight] = seeds;
     const activeComp = mode === 0 ? skyCompNight : skyCompDay;
 
     const safePaletteColor = (value: number) => paletteColor(Math.max(0, Math.min(255, value & 0xFF)));
-    const baseColor = safePaletteColor(activeComp);
-    const fogPair = lookupPair(table, (fogSeed >>> 8) & 0xFF, fogSeed & 0xFF).toColor();
-    const remapPair = lookupPair(table, (idx >>> 4) & 0x0F, idx & 0x0F).toColor();
-
-    const w = horizonPreview.width;
-    const h = horizonPreview.height;
     const toCss = (c: { r: number; g: number; b: number }) => {
         const r = Number.isFinite(c.r) ? c.r : 0;
         const g = Number.isFinite(c.g) ? c.g : 0;
         const b = Number.isFinite(c.b) ? c.b : 0;
         return `rgb(${Math.round(Math.max(0, Math.min(1, r)) * 255)},${Math.round(Math.max(0, Math.min(1, g)) * 255)},${Math.round(Math.max(0, Math.min(1, b)) * 255)})`;
     };
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, toCss(baseColor));
-    grad.addColorStop(0.58, toCss(baseColor));
-    grad.addColorStop(1, toCss(fogPair));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
+
+    const baseColor = safePaletteColor(activeComp);
+    const fogPair = lookupPair(table, (fogSeed >>> 8) & 0xFF, fogSeed & 0xFF).toColor();
+
+    // Simulate VGA sub_11408 banded sky gradient: in mode 13h the sky starts at
+    // the accent pair and steps by +0x0101 in 5 groups of 4 scanlines near the
+    // horizon. The exact band count can vary with horizon geometry, so we render
+    // the canonical 20-line band and warn over a wider step window.
+    const bandGroups = 5;
+    const linesPerGroup = 4;
+    const bandSteps = bandGroups * linesPerGroup;
+    const bandIndices: number[] = [];
+    for (let i = 0; i < bandSteps; i++) {
+        const group = Math.floor(i / linesPerGroup) + 1;
+        bandIndices.push((activeComp + group) & 0xFF);
+    }
+    const warning = getHorizonGradientWarning(activeComp);
+
+    const w = horizonPreview.width;
+    const h = horizonPreview.height;
+    const horizonY = Math.floor(h * 0.58);
+    const bandHeight = Math.max(8, Math.floor(h * 0.18));
+    const bandTop = Math.max(0, horizonY - bandHeight);
+
+    // Sky
+    ctx.fillStyle = toCss(baseColor);
+    ctx.fillRect(0, 0, w, bandTop);
+
+    // Banded transition (palette-stepped, not RGB-interpolated)
+    for (let y = bandTop; y < horizonY; y++) {
+        const t = (y - bandTop) / Math.max(1, horizonY - bandTop);
+        const step = Math.min(bandSteps - 1, Math.floor(t * bandSteps));
+        const c = safePaletteColor(bandIndices[step]);
+        ctx.fillStyle = toCss(c);
+        ctx.fillRect(0, y, w, 1);
+    }
+
+    // Ground/fog
+    ctx.fillStyle = toCss(fogPair);
+    ctx.fillRect(0, horizonY, w, h - horizonY);
 
     // subtle horizon line
     ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    ctx.fillRect(0, Math.floor(h * 0.58), w, 1);
+    ctx.fillRect(0, horizonY, w, 1);
 
     // labeled swatches
     const drawSwatch = (x: number, color: { r: number; g: number; b: number }, label: string) => {
@@ -619,6 +658,7 @@ function renderHorizonPreview(data: Uint8Array, mapOffset: number, isDraft = fal
     const draftLabel = isDraft ? ' (editing preview)' : '';
     horizonPreviewLabel.textContent =
         `${modeLabel}${draftLabel}\nSky accent ${formatHexByte(activeComp)} · horizon color ${formatHexWord(remapValue)} (slot ${formatHexByte(idx)}) · gradient ${formatHexWord(fogSeed)}`;
+    horizonPreviewWarning.textContent = warning ?? '';
 }
 
 function refreshHorizonPreview(): void {
@@ -626,6 +666,7 @@ function refreshHorizonPreview(): void {
         const ctx = horizonPreview.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, horizonPreview.width, horizonPreview.height);
         horizonPreviewLabel.textContent = 'Open a course to inspect sky & horizon.';
+        horizonPreviewWarning.textContent = '';
         return;
     }
     const mapOffset = selectedMapOffset();
@@ -701,7 +742,11 @@ function applyHorizonInputs(): void {
         writeSkySeeds(workingData, mapOffset, draft.seeds);
         writeFogSeed(workingData, mapOffset, draft.fogSeed);
         writeRemapEntry(workingData, mapOffset, fogRemapIndex(draft.fogSeed), draft.remapValue);
-        setHorizonFeedback('Applied sky & horizon changes to this leg.');
+        const activeComp = draft.mode === 0 ? draft.seeds[3] : draft.seeds[2];
+        const warning = getHorizonGradientWarning(activeComp);
+        setHorizonFeedback(warning
+            ? `Applied sky & horizon changes to this leg. Warning: ${warning}`
+            : 'Applied sky & horizon changes to this leg.');
         updateStatus();
         refreshTilePreviews();
     } catch (error) {
@@ -734,6 +779,42 @@ function copyHorizonFromLeg(sourceLeg: number): void {
     } catch (error) {
         setHorizonFeedback(error instanceof Error ? error.message : 'Could not copy horizon settings.', true);
     }
+}
+
+function applyHorizonPreset(): void {
+    if (!workingData) return;
+    const preset = horizonPresetSelect.value;
+    if (!preset) {
+        setHorizonFeedback('Select a safe preset to apply.', true);
+        return;
+    }
+
+    const mapOffset = selectedMapOffset();
+    const fogSeed = readFogSeed(workingData, mapOffset);
+    const idx = fogRemapIndex(fogSeed);
+
+    if (preset === 'day-clear') {
+        writeMapMode(workingData, mapOffset, 1);
+        writeSkySeeds(workingData, mapOffset, [0x0B, 0x07, 0x79, 0x19]);
+        // Keep current fog/remap slot, but ensure a smooth solid horizon value.
+        writeRemapEntry(workingData, mapOffset, idx, readRemapEntry(workingData, mapOffset, idx));
+    } else if (preset === 'night-clear') {
+        writeMapMode(workingData, mapOffset, 0);
+        writeSkySeeds(workingData, mapOffset, [0x09, 0x08, 0x72, 0x13]);
+        writeRemapEntry(workingData, mapOffset, idx, readRemapEntry(workingData, mapOffset, idx));
+    } else if (preset === 'dusk-warm') {
+        writeMapMode(workingData, mapOffset, 1);
+        writeSkySeeds(workingData, mapOffset, [0x03, 0x08, 0x74, 0x13]);
+        writeRemapEntry(workingData, mapOffset, idx, readRemapEntry(workingData, mapOffset, idx));
+    } else {
+        setHorizonFeedback('Unknown horizon preset.', true);
+        return;
+    }
+
+    setHorizonFeedback('Applied safe horizon preset. Review the preview, then adjust if needed.');
+    updateStatus();
+    refreshTilePreviews();
+    refreshHorizonUI();
 }
 
 function resetHorizonForCurrentLeg(): void {
@@ -1979,6 +2060,7 @@ applyModeCanonicalButton.addEventListener('click', () => {
 
 applyHorizonButton.addEventListener('click', applyHorizonInputs);
 resetHorizonLegButton.addEventListener('click', resetHorizonForCurrentLeg);
+applyHorizonPresetButton.addEventListener('click', applyHorizonPreset);
 
 copyHorizonButton.addEventListener('click', () => {
     const selected = copyHorizonLegsContainer.querySelector<HTMLButtonElement>('.horizon-leg-chip.active');

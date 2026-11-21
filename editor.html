@@ -141,6 +141,7 @@
                     <div class="horizon-preview-wrap">
                         <canvas id="horizon-preview" width="280" height="72" aria-label="Sky and horizon preview"></canvas>
                         <p id="horizon-preview-label" class="subtle"></p>
+                        <p id="horizon-preview-warning" class="horizon-preview-warning" aria-live="polite"></p>
                     </div>
 
                     <div class="horizon-section">
@@ -175,9 +176,22 @@
                             Horizon color value <small>remap @ index, 0x1F27</small>
                             <input id="sky-remap-entry" type="text" inputmode="numeric" spellcheck="false">
                         </label>
+                        <div class="horizon-grid">
+                            <label>Safe preset <small>recommended</small>
+                                <select id="horizon-preset">
+                                    <option value="">Custom / unchanged</option>
+                                    <option value="day-clear">Day clear (smooth)</option>
+                                    <option value="night-clear">Night clear (smooth)</option>
+                                    <option value="dusk-warm">Dusk warm (smooth)</option>
+                                </select>
+                            </label>
+                            <div class="horizon-preset-actions">
+                                <button id="apply-horizon-preset" type="button" class="secondary">Apply preset</button>
+                            </div>
+                        </div>
                         <details class="horizon-details">
                             <summary>About these values</summary>
-                            <p class="subtle">The gradient is defined by per-leg color values (not a single global preset). Legs in the same scene can use different combinations, and the preview shows the resulting sky/horizon colors for the selected mode.</p>
+                            <p class="subtle">The gradient is defined by per-leg color values (not a single global preset). Legs in the same scene can use different combinations, and the preview shows the resulting sky/horizon colors for the selected mode. The preview simulates the in-game VGA banded gradient; warnings appear when palette stepping can create artifacts like a black band.</p>
                         </details>
                     </div>
 

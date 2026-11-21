@@ -441,7 +441,8 @@ select, input[type="number"] { padding: 8px 10px; }
 }
 .horizon-grid label { margin-bottom: 0; }
 .horizon-grid input,
-#sky-remap-entry {
+#sky-remap-entry,
+#horizon-preset {
     width: 100%;
     font-family: ui-monospace, monospace;
 }
@@ -449,6 +450,19 @@ select, input[type="number"] { padding: 8px 10px; }
     opacity: 0.85;
     background: #0f141d;
 }
+.horizon-preview-warning {
+    min-height: 1.2em;
+    margin: 6px 0 0;
+    color: #ffb36b;
+    font-size: 11px;
+    line-height: 1.35;
+}
+.horizon-preview-warning.error { color: #ff958c; }
+.horizon-preset-actions {
+    display: flex;
+    align-items: flex-end;
+}
+.horizon-preset-actions button { width: 100%; }
 .button-row-wrap {
     flex-wrap: wrap;
     gap: 8px;
