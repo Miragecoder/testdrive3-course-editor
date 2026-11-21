@@ -39,9 +39,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 select, input[type="number"] { padding: 8px 10px; }
 
 .editor-shell {
-    width: min(1540px, 100%);
+    width: min(1720px, 100%);
     margin: 0 auto;
-    padding: 22px;
+    padding: 18px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .topbar, .toolbar, .panel-heading, .button-row {
@@ -50,12 +53,14 @@ select, input[type="number"] { padding: 8px 10px; }
     gap: 12px;
 }
 
-.topbar { justify-content: space-between; margin-bottom: 18px; }
+.topbar { justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.topbar-brand { min-width: 0; }
 .topbar h1 { margin: 2px 0 0; font-size: 25px; letter-spacing: -0.03em; }
 .topbar h1 span { color: #ff9a54; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 .eyebrow { margin: 0; color: #72d9c8; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; }
+.topbar-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
-.back-link { color: #aeb8c7; text-decoration: none; font-size: 13px; }
+.back-link { color: #aeb8c7; text-decoration: none; font-size: 13px; white-space: nowrap; }
 .back-link:hover { color: #fff; }
 
 .toolbar {
@@ -66,7 +71,7 @@ select, input[type="number"] { padding: 8px 10px; }
     background: rgba(25, 30, 40, 0.9);
 }
 
-.toolbar label, .inspector label {
+.toolbar label, .inspector label, .course-tools-panel label {
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -79,25 +84,83 @@ select, input[type="number"] { padding: 8px 10px; }
 .toolbar select { min-width: 190px; }
 #leg-select { min-width: 95px; }
 #source-filename { color: #8994a5; font: 12px ui-monospace, monospace; }
-#export-dat { margin-left: auto; background: #bf6032; border-color: #ef8c55; }
+.toolbar-spacer { flex: 1 1 12px; }
+#export-dat { background: #bf6032; border-color: #ef8c55; }
 .invert-button { width: 100%; margin-top: 8px; background: #1d4948; border-color: #327c75; }
 .notice { color: #e4b976; font-size: 11px; }
 
 .workspace {
+    --toolbox-width: 320px;
     display: grid;
-    grid-template-columns: minmax(620px, 1fr) 270px;
-    gap: 16px;
-    align-items: start;
-    margin-top: 16px;
+    grid-template-columns: minmax(240px, var(--toolbox-width)) 8px minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+    margin-top: 14px;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+.workspace.toolbox-collapsed {
+    grid-template-columns: 44px 8px minmax(0, 1fr);
 }
 
-.map-panel, .panel {
+.toolbox-pane, .map-panel, .panel {
     border: 1px solid #303846;
     border-radius: 10px;
     background: rgba(25, 30, 40, 0.9);
 }
 
-.map-panel { padding: 14px; }
+.toolbox-pane {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.toolbox-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #303846;
+    background: rgba(20, 25, 34, 0.95);
+}
+.toolbox-header h2 { margin: 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #dbe3ef; }
+.toolbox-collapse { padding: 4px 8px; min-width: 32px; font-size: 12px; line-height: 1; }
+.toolbox-body {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+}
+.toolbox-pane.collapsed .toolbox-header h2,
+.toolbox-pane.collapsed .toolbox-body { display: none; }
+.toolbox-pane.collapsed .toolbox-header { justify-content: center; padding: 10px 6px; }
+.toolbox-pane.collapsed .toolbox-collapse { width: 100%; }
+
+.workspace-resizer {
+    position: relative;
+    cursor: col-resize;
+    touch-action: none;
+    background: transparent;
+}
+.workspace-resizer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 2px;
+    border-radius: 2px;
+    background: #303846;
+}
+.workspace-resizer:hover::before,
+.workspace-resizer:focus-visible::before,
+.workspace.resizing .workspace-resizer::before { background: #ff9a54; }
+.workspace.resizing { cursor: col-resize; user-select: none; }
+.workspace.resizing iframe, .workspace.resizing canvas { pointer-events: none; }
+
+.map-panel { padding: 14px; min-width: 0; overflow: hidden; }
 .panel-heading { justify-content: space-between; margin-bottom: 12px; }
 .panel-heading h2, .panel h2 { margin: 0; font-size: 14px; }
 .panel-heading p, .subtle { margin: 4px 0 0; color: #909bad; font-size: 11px; }
@@ -435,9 +498,51 @@ select, input[type="number"] { padding: 8px 10px; }
 .status.error { color: #ff958c; }
 .notice { margin: 8px 2px 0; color: #7e8999; font-size: 10px; line-height: 1.5; }
 
-@media (max-width: 980px) {
-    .workspace { grid-template-columns: 1fr; }
-    .inspector { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+/* Course tools dialog */
+.course-tools-wrap { position: relative; }
+.course-tools-toggle { white-space: nowrap; }
+.course-tools-dialog {
+    border: 1px solid #303846;
+    border-radius: 10px;
+    background: #171c25;
+    color: #eef2f8;
+    padding: 0;
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+}
+.course-tools-dialog::backdrop { background: rgba(6, 8, 12, 0.55); }
+.course-tools-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 14px 0;
+}
+.course-tools-dialog-header h2 { margin: 0; font-size: 16px; }
+.course-tools-dialog-header .subtle { margin-top: 4px; }
+.course-tools-close { padding: 6px 10px; font-size: 11px; }
+.course-tools-panel {
+    margin: 12px;
+    border: 1px solid #394150;
+    background: rgba(25, 30, 40, 0.7);
+}
+.course-tools-panel h3 { margin: 0; font-size: 14px; }
+
+@media (max-width: 1100px) {
+    .workspace {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto minmax(0, 1fr);
+    }
+    .workspace.toolbox-collapsed { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr); }
+    .workspace-resizer { display: none; }
+    .toolbox-pane { max-height: 42vh; }
+    .toolbox-pane.collapsed { max-height: none; }
+}
+
+@media (max-width: 720px) {
+    .editor-shell { padding: 12px; }
+    .topbar h1 { font-size: 22px; }
 }
 
 /* Sky & horizon panel */

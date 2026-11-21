@@ -2637,3 +2637,123 @@ function writeDword(data: Uint8Array, offset: number, value: number): void {
 function parseCourseId(value: string): CourseId | null {
     return value in COURSE_LAYOUTS ? value as CourseId : null;
 }
+
+function initEditorShell(): void {
+    const workspace = document.getElementById('workspace');
+    const toolboxPane = document.getElementById('toolbox-pane');
+    const toolboxBody = document.getElementById('toolbox-body');
+    const collapseButton = document.getElementById('toolbox-collapse');
+    const resizer = document.getElementById('workspace-resizer');
+    const courseToolsToggle = document.getElementById('course-tools-toggle');
+    const courseToolsDialog = document.getElementById('course-tools-dialog');
+    const courseToolsClose = document.getElementById('course-tools-close');
+
+    if (courseToolsToggle instanceof HTMLButtonElement && courseToolsDialog instanceof HTMLDialogElement) {
+        const closeDialog = (): void => {
+            if (courseToolsDialog.open) courseToolsDialog.close();
+            courseToolsToggle.setAttribute('aria-expanded', 'false');
+        };
+        courseToolsToggle.addEventListener('click', () => {
+            if (courseToolsDialog.open) {
+                closeDialog();
+                return;
+            }
+            courseToolsDialog.showModal();
+            courseToolsToggle.setAttribute('aria-expanded', 'true');
+        });
+        courseToolsClose?.addEventListener('click', closeDialog);
+        courseToolsDialog.addEventListener('close', () => {
+            courseToolsToggle.setAttribute('aria-expanded', 'false');
+        });
+        courseToolsDialog.addEventListener('click', (event) => {
+            if (event.target === courseToolsDialog) closeDialog();
+        });
+    }
+
+    if (!(workspace instanceof HTMLElement) || !(toolboxPane instanceof HTMLElement) || !(collapseButton instanceof HTMLButtonElement)) {
+        return;
+    }
+
+    const minToolboxWidth = 240;
+    const maxToolboxWidth = 560;
+    let lastToolboxWidth = 320;
+
+    const setToolboxWidth = (width: number): void => {
+        const clamped = Math.max(minToolboxWidth, Math.min(maxToolboxWidth, Math.round(width)));
+        lastToolboxWidth = clamped;
+        workspace.style.setProperty('--toolbox-width', `${clamped}px`);
+    };
+
+    const setCollapsed = (collapsed: boolean): void => {
+        toolboxPane.classList.toggle('collapsed', collapsed);
+        workspace.classList.toggle('toolbox-collapsed', collapsed);
+        collapseButton.textContent = collapsed ? '»' : '«';
+        collapseButton.title = collapsed ? 'Expand toolbox' : 'Collapse toolbox';
+        collapseButton.setAttribute('aria-expanded', String(!collapsed));
+        if (toolboxBody instanceof HTMLElement) {
+            toolboxBody.hidden = collapsed;
+        }
+        if (resizer instanceof HTMLElement) {
+            resizer.setAttribute('aria-disabled', String(collapsed));
+            resizer.tabIndex = collapsed ? -1 : 0;
+        }
+    };
+
+    collapseButton.addEventListener('click', () => {
+        setCollapsed(!toolboxPane.classList.contains('collapsed'));
+    });
+
+    if (resizer instanceof HTMLElement) {
+        let pointerId: number | null = null;
+        let startX = 0;
+        let startWidth = lastToolboxWidth;
+
+        const stopResize = (): void => {
+            if (pointerId === null) return;
+            if (resizer.hasPointerCapture(pointerId)) resizer.releasePointerCapture(pointerId);
+            pointerId = null;
+            workspace.classList.remove('resizing');
+        };
+
+        resizer.addEventListener('pointerdown', (event) => {
+            if (toolboxPane.classList.contains('collapsed')) return;
+            if (event.button !== 0) return;
+            pointerId = event.pointerId;
+            startX = event.clientX;
+            startWidth = toolboxPane.getBoundingClientRect().width;
+            workspace.classList.add('resizing');
+            resizer.setPointerCapture(event.pointerId);
+            event.preventDefault();
+        });
+
+        resizer.addEventListener('pointermove', (event) => {
+            if (pointerId !== event.pointerId) return;
+            setToolboxWidth(startWidth + (event.clientX - startX));
+        });
+
+        resizer.addEventListener('pointerup', stopResize);
+        resizer.addEventListener('pointercancel', stopResize);
+
+        resizer.addEventListener('keydown', (event) => {
+            if (toolboxPane.classList.contains('collapsed')) return;
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                setToolboxWidth(lastToolboxWidth - 16);
+            } else if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                setToolboxWidth(lastToolboxWidth + 16);
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                setToolboxWidth(minToolboxWidth);
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                setToolboxWidth(maxToolboxWidth);
+            }
+        });
+    }
+
+    setToolboxWidth(lastToolboxWidth);
+    setCollapsed(false);
+}
+
+initEditorShell();

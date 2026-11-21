@@ -2,7 +2,7 @@
 
 ## Status
 
-- [ ] Phase 1 - App shell / layout refactor
+- [x] Phase 1 - App shell / layout refactor
 - [ ] Phase 2 - Toolbox modes and panel regrouping
 - [ ] Phase 3 - Map interaction and properties popup
 - [ ] Phase 4 - Pattern-aware editing
@@ -210,6 +210,24 @@ Separate page: PLAYDISK.DAT editor
 - **Course vs leg scope:** Keep labels explicit. Sky/horizon is leg-scoped; SCENE03 generation is course-generation scoped and outside scene editing.
 - **Pattern features need data rules:** Roadside snap points and tile clusters should be grounded in existing SCENE01/SCENE02 patterns/data where possible.
 - **Sign generator data model unknown:** Treat as UI stub until the expected output (asset/entity/variant) is defined.
+
+## Phase 1 completion notes
+
+**Completed (2026-11-21):**
+- Refactored `editor.html` into the new shell: top bar, course controls toolbar, toolbox pane (left), resizer, map pane (right), and status footer.
+- Moved the Reverse Pacific course / SCENE03 generation UI out of the inspector flow into a `Course Tools` dialog in the header (outside scene-editing modes). PLAYDISK remains a separate top-bar link.
+- Added split layout/resizer/collapse behavior in `src/browser/editor.css` and minimal shell wiring in `src/browser/editor.ts` (`initEditorShell`): toolbox collapse/expand, pointer/keyboard resizer, Course Tools dialog open/close.
+- Preserved existing DOM IDs/hooks used by editor logic; no domain behavior changes intended.
+
+**Verification performed:**
+- Static ID check: all `requiredElement(...)` IDs referenced by `src/browser/editor.ts` are present in `editor.html`; new shell IDs present.
+- `npm run build` / `npm run typecheck` **not run**: Node/npm are not available in this sandbox environment (`npm: command not found`). Manual static review of HTML/CSS/TS changes performed instead.
+
+**Follow-ups / Phase 2 notes:**
+- Phase 2 should add toolbox mode state (`tiles`, `entities`, `routes-ai`, `leg-properties`) and regroup existing panels into those modes; the toolbox body currently contains all panels in a single scrollable column.
+- Consider persisting toolbox width/collapse state (localStorage) if desired; currently resets on reload.
+- The Course Tools dialog uses native `<dialog>`; verify focus/ESC behavior across browsers during Phase 5 polish.
+- Run `npm run build` in a Node-enabled environment to confirm typecheck/build before shipping.
 
 ## Pickup instructions for future sessions
 
