@@ -128,7 +128,10 @@ const applyHorizonPresetButton = requiredElement<HTMLButtonElement>('apply-horiz
 const horizonFeedback = requiredElement<HTMLParagraphElement>('horizon-feedback');
 const paintInput = requiredElement<HTMLInputElement>('paint-mode');
 const cellDetails = requiredElement<HTMLDivElement>('cell-details');
-const status = requiredElement<HTMLDivElement>('status');
+const status = requiredElement<HTMLElement>('status');
+const statusContext = requiredElement<HTMLSpanElement>('status-context');
+const statusMessage = requiredElement<HTMLSpanElement>('status-message');
+const dirtyIndicator = requiredElement<HTMLElement>('dirty-indicator');
 const fileInput = requiredElement<HTMLInputElement>('custom-dat');
 const filenameLabel = requiredElement<HTMLSpanElement>('source-filename');
 const lstFilenameLabel = requiredElement<HTMLSpanElement>('lst-filename');
@@ -912,8 +915,24 @@ function activeData(): Uint8Array {
 }
 
 function setStatus(message: string, isError = false): void {
-    status.textContent = message;
+    statusMessage.textContent = message;
     status.classList.toggle('error', isError);
+}
+
+function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
+    if (a === b) return true;
+    if (!a || !b || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
+}
+
+function hasUnsavedChanges(): boolean {
+    if (inversionApplied) return true;
+    if (!bytesEqual(originalData, workingData)) return true;
+    if (!bytesEqual(originalLstData, workingLstData)) return true;
+    return false;
 }
 
 function countEditedCells(): number {
@@ -933,11 +952,44 @@ function countEditedCells(): number {
     return count;
 }
 
+function getValidationWarnings(): string[] {
+    const warnings: string[] = [];
+    if (!workingData) return warnings;
+    try {
+        const mapOffset = selectedMapOffset();
+        const mode = readMapMode(workingData, mapOffset);
+        const seeds = readSkySeeds(workingData, mapOffset);
+        const activeComp = mode === 0 ? seeds[3] : seeds[2];
+        const horizonWarning = getHorizonGradientWarning(activeComp);
+        if (horizonWarning) warnings.push('Horizon gradient may show banding');
+    } catch {
+        // Ignore horizon warning computation errors during status refresh.
+    }
+    if (inversionApplied) warnings.push('SCENE03 routes need validation');
+    return warnings;
+}
+
+function updateStatusContext(): void {
+    const legNum = Number(legSelect.value) + 1;
+    const cellPart = selectedCell ? `Cell ${selectedCell.x},${selectedCell.y}` : 'No cell selected';
+    const targetPart = selectedEntitySlot !== null
+        ? `Entity ${selectedEntitySlot}`
+        : selectedCell ? `Tile ${selectedCell.x},${selectedCell.y}` : 'No selection';
+    const zoomPart = `Zoom ${zoomValue.textContent ?? `${Math.round((Number(zoomInput.value) / 18) * 100)}%`}`;
+    const dirty = hasUnsavedChanges();
+    dirtyIndicator.hidden = !dirty;
+    dirtyIndicator.textContent = dirty ? 'Unsaved changes' : '';
+    const warnings = getValidationWarnings();
+    const warningPart = warnings.length > 0 ? ` ⚠ ${warnings.join('; ')}` : '';
+    statusContext.textContent = `${sourceFilename} › Leg ${legNum}/5 › ${cellPart} › ${targetPart} › ${zoomPart}${warningPart}`;
+}
+
 function updateStatus(): void {
     if (!workingData) return;
     const mode = readMapMode(workingData, selectedMapOffset());
     const modeLabel = mode === 0 ? 'Night/dark' : mode === 1 ? 'Day/light' : `Unknown (${mode})`;
-    setStatus(`${sourceFilename} · ${modeLabel} · ${countEditedCells()} edited cells`);
+    updateStatusContext();
+    setStatus(`${modeLabel} · ${countEditedCells()} edited map cells`);
     exportButton.disabled = false;
     exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
     exportLstButton.disabled = !workingLstData;
@@ -1548,6 +1600,7 @@ function renderEntityList(): void {
     }
     entitySelect.value = selectedEntitySlot === null ? '' : String(selectedEntitySlot);
     renderEntityDetails();
+    updateStatusContext();
 }
 
 function renderOpponentScriptEditors(mapOffset: number): void {
@@ -2037,6 +2090,7 @@ function selectEntity(slot: number, options?: { openPopup?: boolean; anchorClien
     entitySelect.value = String(slot);
     renderEntityDetails();
     refreshSelectedEntityMarker();
+    updateStatusContext();
     if (options?.openPopup) {
         openPropertiesPopup({ kind: 'entity', slot }, options?.anchorClientX, options?.anchorClientY);
     } else if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity') {
@@ -2358,6 +2412,7 @@ function selectCell(x: number, y: number, options?: { openPopup?: boolean; ancho
         writeMapCell(activeData(), selectedMapOffset(), x, y, readCellControls());
         updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
         renderGrid();
+        updateStatusContext();
         if (options?.openPopup || (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'cell')) {
             openPropertiesPopup({ kind: 'cell', x, y }, options?.anchorClientX, options?.anchorClientY);
         }
@@ -2366,6 +2421,7 @@ function selectCell(x: number, y: number, options?: { openPopup?: boolean; ancho
 
     updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
     renderGrid();
+    updateStatusContext();
     if (options?.openPopup) {
         openPropertiesPopup({ kind: 'cell', x, y }, options?.anchorClientX, options?.anchorClientY);
     } else if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'cell') {
@@ -2672,6 +2728,7 @@ function invertCourse(): void {
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
         refreshTilePreviews();
+        updateStatusContext();
         const swapNote = swappedLandscapes ? ' landscapes/palettes swapped (leg 1↔5, set A↔C);' : '';
         const warningNote = swapWarning ? ` Landscape swap skipped: ${swapWarning}` : '';
         setStatus(`SCENE03 experiment ready ·${swapNote} using SCENE01 shared lane bank (un-reversed, no mirroring), LST set to private O/P banks (0x57=0), and SCENE03O.BIN/SCENE03P.BIN embedded into SCENE03.DAT. Export SCENE03.DAT and SCENE03.LST (O/P BIN exports are optional). Routes still need validation.${warningNote}`, Boolean(swapWarning));
@@ -2700,6 +2757,7 @@ legSelect.addEventListener('change', () => {
     closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     if (workingData) refreshTilePreviews();
+    updateStatusContext();
 });
 
 const MIN_MAP_CELL_SIZE = 12;
@@ -2717,6 +2775,7 @@ function applyMapZoom(): void {
     const percent = Math.round((cellSize / DEFAULT_MAP_CELL_SIZE) * 100);
     zoomValue.textContent = `${percent}%`;
     if (isPropertiesPopupOpen()) positionPropertiesPopup();
+    updateStatusContext();
 }
 
 function setMapZoom(nextSize: number, anchor?: { clientX: number; clientY: number }): void {
@@ -2783,23 +2842,66 @@ document.addEventListener('pointerdown', (event) => {
 }, true);
 
 document.addEventListener('keydown', (event) => {
+    const target = event.target as HTMLElement | null;
+    const inTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+    const modalDialogOpen = !!document.querySelector('dialog[open]');
+
     if (event.key === 'Escape' && isPropertiesPopupOpen()) {
         event.preventDefault();
         closePropertiesPopup();
         return;
     }
+    if (modalDialogOpen) return;
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'z') {
-        const target = event.target as HTMLElement | null;
-        const inTextInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
         if (!inTextInput && lastClusterUndo) {
             event.preventDefault();
             undoLastClusterStamp();
             return;
         }
     }
+
+    if (!inTextInput && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const key = event.key.toLowerCase();
+        const modeByKey: Record<string, string> = {
+            '1': 'tiles',
+            '2': 'entities',
+            '3': 'routes-ai',
+            '4': 'leg-properties',
+        };
+        const mode = modeByKey[key];
+        if (mode) {
+            const tab = document.querySelector<HTMLButtonElement>(`.toolbox-tab[data-mode="${mode}"]`);
+            if (tab) {
+                event.preventDefault();
+                tab.click();
+                tab.focus();
+                return;
+            }
+        }
+        if (key === '+' || key === '=') {
+            event.preventDefault();
+            setMapZoom(clampMapCellSize(Number(zoomInput.value)) + 2);
+            return;
+        }
+        if (key === '-' || key === '_') {
+            event.preventDefault();
+            setMapZoom(clampMapCellSize(Number(zoomInput.value)) - 2);
+            return;
+        }
+        if (key === '0') {
+            event.preventDefault();
+            resetMapZoom();
+            return;
+        }
+        if (key === 'f') {
+            event.preventDefault();
+            fitMapToView();
+            return;
+        }
+    }
+
     if (event.key === 'Enter' && !isPropertiesPopupOpen()) {
-        const target = event.target as HTMLElement | null;
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+        if (inTextInput) return;
         if (target && target.closest('#map-properties-popup')) return;
         if (selectedEntitySlot !== null && target?.closest('.entity-marker, #entity-select')) {
             event.preventDefault();
@@ -2922,6 +3024,7 @@ entitySelect.addEventListener('change', () => {
         selectedEntitySlot = null;
         renderEntityDetails();
         refreshSelectedEntityMarker();
+        updateStatusContext();
         if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity') closePropertiesPopup();
         return;
     }

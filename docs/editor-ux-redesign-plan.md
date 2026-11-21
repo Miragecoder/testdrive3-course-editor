@@ -6,7 +6,7 @@
 - [x] Phase 2 - Toolbox modes and panel regrouping
 - [x] Phase 3 - Map interaction and properties popup
 - [x] Phase 4 - Pattern-aware editing
-- [ ] Phase 5 - Polish and regression pass
+- [x] Phase 5 - Polish and regression pass
 
 ## Context
 
@@ -287,6 +287,26 @@ Separate page: PLAYDISK.DAT editor
 - Roadside snap presets are heuristic (cell offsets and lane-side-based nearest roadside). They improve placement but do not block manual/free placement; validate against real SCENE01/SCENE02 roadside object patterns during Phase 5.
 - `entity-move-on-click` is a global toggle while enabled; consider scoping it more explicitly to Entities mode or adding stronger visual affordance during Phase 5 polish.
 - Run `npm run build` / `npm run typecheck` in a Node-enabled environment before shipping.
+
+## Phase 5 completion notes
+
+**Completed (2026-11-21):**
+- **Keyboard shortcuts & tooltips:** Added global shortcuts (when not typing in inputs/dialogs): `1`–`4` switch toolbox modes, `+`/`=` zoom in, `-` zoom out, `0` reset zoom, `F` fit map, `Enter` open properties for selected cell/entity, `Esc` close properties popup, `Ctrl/Cmd+Z` undo last cluster stamp. Added tooltips/title hints to toolbox tabs, source/leg selects, open/export buttons, map zoom controls, paint toggle, and documented shortcuts in the footer notice.
+- **Status bar details & dirty-state cues:** Reworked status footer into context + message areas. Context shows source file, active leg, selected cell, selected target, zoom, and validation warnings. Added a toolbar `Unsaved changes` indicator driven by full DAT/LST byte comparison against original working copies; status context updates on selection, zoom, leg, and data changes.
+- **Validation/warning surfacing:** Surfaced horizon gradient banding warnings and SCENE03 route-validation reminder in status context while preserving existing panel-specific feedback (horizon preview warning, route/LST/cluster/entity feedback).
+- **Visual polish & cleanup:** Polished status/footer styling for readability and error emphasis, kept popup/toolbox/map styling consistent, and added modal-dialog guard to avoid global shortcuts firing over course-tools dialog. No PLAYDISK or SCENE03 generation was moved into the scene-editing toolbox; existing editor behavior preserved incrementally.
+- **Regression pass:** Performed static regression review of core flow wiring (load/open, course/leg selection, tile paint/select, properties popup, entity/route/LST/horizon controls, export/reset handlers, toolbox shell). No Node runtime available for runtime build smoke test.
+
+**Verification performed:**
+- Static ID checks: `requiredElement(...)` and `getElementById(...)` IDs referenced by `src/browser/editor.ts` exist in `editor.html`; no duplicate HTML IDs found.
+- `npm run typecheck` / `npm run build` **not run**: `node`/`npm` unavailable in this sandbox (`node: command not found`); `node_modules/.bin/tsc` present but cannot execute without Node. Manual static review of changed HTML/CSS/TS performed.
+
+**Follow-ups:**
+- Run `npm run typecheck` and `npm run build` in a Node-enabled environment before shipping.
+- Consider persisting toolbox mode/width/collapse and cluster library in localStorage.
+- Cluster ghost preview is still highlight-only; richer tile-preview ghosts/drag-stamp would improve Phase 4 UX.
+- Roadside snap presets remain heuristic; validate against SCENE01/SCENE02 patterns and consider stronger affordance/scope for "Move selected entity on map click".
+- If keyboard shortcuts grow, add a small in-app shortcuts/help overlay and audit focus trapping across browsers for the native `<dialog>` course tools.
 
 ## Pickup instructions for future sessions
 

@@ -47,22 +47,23 @@
         <section class="toolbar" aria-label="Course controls">
             <label>
                 Source course
-                <select id="course-select">
+                <select id="course-select" title="Select source course">
                     <option value="SCENE01">Pacific Coast · SCENE01</option>
                     <option value="SCENE02">Cape Cod · SCENE02</option>
                 </select>
             </label>
             <label>
                 Leg
-                <select id="leg-select"></select>
+                <select id="leg-select" title="Select active leg (1-5)"></select>
             </label>
-            <button id="open-dat" type="button">Open DAT…</button>
+            <button id="open-dat" type="button" title="Open a course DAT file">Open DAT…</button>
             <input id="custom-dat" type="file" accept=".dat" hidden>
             <span id="source-filename">SCENE01.DAT</span>
             <span id="lst-filename" style="color:#8994a5;font:12px ui-monospace,monospace;">SCENE01.LST</span>
             <div class="toolbar-spacer"></div>
-            <button id="export-dat" type="button" disabled>Export edited DAT</button>
-            <button id="export-lst" type="button" disabled>Export edited LST</button>
+            <button id="export-dat" type="button" disabled title="Export the edited DAT working copy">Export edited DAT</button>
+            <button id="export-lst" type="button" disabled title="Export the edited LST working copy">Export edited LST</button>
+            <span id="dirty-indicator" class="dirty-indicator" aria-live="polite" hidden>Unsaved changes</span>
         </section>
 
         <div class="workspace" id="workspace">
@@ -72,10 +73,10 @@
                     <button id="toolbox-collapse" type="button" class="secondary toolbox-collapse" aria-expanded="true" aria-controls="toolbox-body" title="Collapse toolbox">«</button>
                 </div>
                 <div class="toolbox-tabs" id="toolbox-tabs" role="tablist" aria-label="Toolbox modes">
-                    <button type="button" class="toolbox-tab active" role="tab" id="toolbox-tab-tiles" aria-selected="true" aria-controls="toolbox-mode-tiles" data-mode="tiles">Tiles</button>
-                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-entities" aria-selected="false" aria-controls="toolbox-mode-entities" data-mode="entities" tabindex="-1">Entities</button>
-                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-routes-ai" aria-selected="false" aria-controls="toolbox-mode-routes-ai" data-mode="routes-ai" tabindex="-1">Routes &amp; AI</button>
-                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-leg-properties" aria-selected="false" aria-controls="toolbox-mode-leg-properties" data-mode="leg-properties" tabindex="-1">Leg Props</button>
+                    <button type="button" class="toolbox-tab active" role="tab" id="toolbox-tab-tiles" aria-selected="true" aria-controls="toolbox-mode-tiles" data-mode="tiles" title="Tiles mode (1)">Tiles</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-entities" aria-selected="false" aria-controls="toolbox-mode-entities" data-mode="entities" tabindex="-1" title="Entities mode (2)">Entities</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-routes-ai" aria-selected="false" aria-controls="toolbox-mode-routes-ai" data-mode="routes-ai" tabindex="-1" title="Routes & AI mode (3)">Routes &amp; AI</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-leg-properties" aria-selected="false" aria-controls="toolbox-mode-leg-properties" data-mode="leg-properties" tabindex="-1" title="Leg Properties mode (4)">Leg Props</button>
                 </div>
                 <div class="toolbox-body" id="toolbox-body">
                     <div class="inspector">
@@ -373,20 +374,20 @@
                         <p>32 × 16 cells · left click select/paint · right click properties · wheel zoom · middle drag pan</p>
                     </div>
                     <div class="map-toggles">
-                        <label class="paint-toggle">
+                        <label class="paint-toggle" title="When enabled, clicking a map cell paints the selected tile settings">
                             <input id="paint-mode" type="checkbox">
                             Paint on click
                         </label>
                         <div class="zoom-controls" aria-label="Map zoom controls">
-                            <button id="map-zoom-out" type="button" class="secondary zoom-btn" aria-label="Zoom out">−</button>
-                            <label class="zoom-control" for="map-zoom">
+                            <button id="map-zoom-out" type="button" class="secondary zoom-btn" aria-label="Zoom out" title="Zoom out (-)">−</button>
+                            <label class="zoom-control" for="map-zoom" title="Map zoom">
                                 <span class="sr-only">Zoom</span>
                                 <input id="map-zoom" type="range" min="12" max="108" step="2" value="18">
                                 <span id="map-zoom-value">100%</span>
                             </label>
-                            <button id="map-zoom-in" type="button" class="secondary zoom-btn" aria-label="Zoom in">+</button>
-                            <button id="map-zoom-fit" type="button" class="secondary zoom-btn" title="Fit map to view">Fit</button>
-                            <button id="map-zoom-reset" type="button" class="secondary zoom-btn" title="Reset zoom to 100%">100%</button>
+                            <button id="map-zoom-in" type="button" class="secondary zoom-btn" aria-label="Zoom in" title="Zoom in (+)">+</button>
+                            <button id="map-zoom-fit" type="button" class="secondary zoom-btn" title="Fit map to view (F)">Fit</button>
+                            <button id="map-zoom-reset" type="button" class="secondary zoom-btn" title="Reset zoom to 100% (0)">100%</button>
                         </div>
                     </div>
                 </div>
@@ -449,9 +450,13 @@
             </section>
         </div>
 
-        <footer id="status" class="status" role="status">Loading course data…</footer>
+        <footer id="status" class="status" role="status" aria-live="polite">
+            <span id="status-context" class="status-context"></span>
+            <span id="status-message" class="status-message">Loading course data…</span>
+        </footer>
         <p class="notice">
             Inversion exports a DAT only; keep the existing SCENE03.LST and test on a copy. AI routes still need in-game validation.
+            Shortcuts: 1–4 toolbox modes, wheel zoom, Space/middle-drag pan, right-click properties, Enter open, Esc close, Ctrl/Cmd+Z undo cluster stamp.
         </p>
     </main>
     <script type="module" src="./src/browser/editor.ts"></script>
