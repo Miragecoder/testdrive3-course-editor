@@ -4,7 +4,7 @@
 
 - [x] Phase 1 - App shell / layout refactor
 - [x] Phase 2 - Toolbox modes and panel regrouping
-- [ ] Phase 3 - Map interaction and properties popup
+- [x] Phase 3 - Map interaction and properties popup
 - [ ] Phase 4 - Pattern-aware editing
 - [ ] Phase 5 - Polish and regression pass
 
@@ -250,6 +250,25 @@ Separate page: PLAYDISK.DAT editor
 - Map paint/entity/route overlay toggles remain in the map toolbar; consider whether paint controls should also be surfaced in Tiles mode during Phase 3/5 polish.
 - Toolbox mode is currently in-memory only (resets on reload). Consider persisting active mode/width/collapse state in localStorage if desired.
 - Run `npm run build` in a Node-enabled environment to confirm typecheck/build before shipping.
+
+## Phase 3 completion notes
+
+**Completed (2026-11-21):**
+- Added map interaction controls in `editor.html`/`src/browser/editor.ts`/`src/browser/editor.css`: scroll-wheel zoom-to-cursor, space/middle-drag pan, zoom in/out/fit/reset controls, and zoom percentage display.
+- Moved selected cell properties into a right-click properties popup overlay on the map. The popup reuses the existing cell form IDs (`cell-details`, `tile-id`, `tile-rotation`, `tile-elevation`, `apply-cell`, `reset-cell`) so existing editor wiring continues to work.
+- Moved entity details into the same contextual popup (`entity-details` preserved). Entity list selection, entity marker left-click selection, right-click/double-click/Enter open the entity popup; marker selection state remains synchronized.
+- Implemented popup interactions per plan: left click selects/paints based on active tool; right click selects + opens popup; double-click/Enter open popup; `Esc` closes popup; click-outside closes popup and suppresses accidental cell/entity mutation. Popup pointer/wheel input is isolated from map pan/zoom.
+- Removed fixed Selected cell / entity detail panels from toolbox modes and replaced them with short hints; tile palette remains in Tiles mode. Kept PLAYDISK and SCENE03/Course Tools outside the scene-editing toolbox.
+
+**Verification performed:**
+- Static checks: `grep`/`awk`/`comm` verified all `requiredElement(...)`/`getElementById(...)` IDs referenced by `src/browser/editor.ts` exist in `editor.html`, and no duplicate HTML IDs were found.
+- `npm run build` / `npm run typecheck` **not run**: Node/npm are unavailable in this sandbox (`env: 'node': No such file or directory`; `node_modules/.bin/tsc` present but cannot execute without Node). Manual static review of changed HTML/CSS/TS performed.
+
+**Follow-ups / Phase 4 notes:**
+- Popup currently supports cell and entity targets; route-marker/route-decision properties could be added as contextual targets if needed, but route marker editing remains available in Routes & AI.
+- Click-outside closes the popup and suppresses the next cell/entity marker click to avoid accidental mutation; consider a softer behavior if UX feedback prefers selection changes.
+- Pan uses Space+drag and middle-drag; touch/mobile pan behavior and pointer capture edge cases should be checked during Phase 5 polish.
+- Run `npm run build` / `npm run typecheck` in a Node-enabled environment before shipping.
 
 ## Pickup instructions for future sessions
 

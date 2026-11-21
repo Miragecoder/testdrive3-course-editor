@@ -87,8 +87,18 @@ import {
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
 const legSelect = requiredElement<HTMLSelectElement>('leg-select');
 const grid = requiredElement<HTMLDivElement>('map-grid');
+const mapScroll = requiredElement<HTMLDivElement>('map-scroll');
 const zoomInput = requiredElement<HTMLInputElement>('map-zoom');
 const zoomValue = requiredElement<HTMLSpanElement>('map-zoom-value');
+const zoomOutButton = requiredElement<HTMLButtonElement>('map-zoom-out');
+const zoomInButton = requiredElement<HTMLButtonElement>('map-zoom-in');
+const zoomFitButton = requiredElement<HTMLButtonElement>('map-zoom-fit');
+const zoomResetButton = requiredElement<HTMLButtonElement>('map-zoom-reset');
+const propertiesPopup = requiredElement<HTMLDivElement>('map-properties-popup');
+const popupTitle = requiredElement<HTMLHeadingElement>('map-popup-title');
+const popupCloseButton = requiredElement<HTMLButtonElement>('map-popup-close');
+const popupCellSection = requiredElement<HTMLElement>('map-popup-cell');
+const popupEntitySection = requiredElement<HTMLElement>('map-popup-entity');
 const tileIdInput = requiredElement<HTMLInputElement>('tile-id');
 const rotationInput = requiredElement<HTMLSelectElement>('tile-rotation');
 const elevationInput = requiredElement<HTMLInputElement>('tile-elevation');
@@ -179,6 +189,9 @@ let hoveredCell: { x: number; y: number } | null = null;
 let tilePreviewAtlas: HTMLCanvasElement | null = null;
 let paletteTileId: number | null = null;
 let selectedEntitySlot: number | null = null;
+type PropertiesPopupTarget = { kind: 'cell'; x: number; y: number } | { kind: 'entity'; slot: number };
+let propertiesPopupTarget: PropertiesPopupTarget | null = null;
+let suppressNextMapClick = false;
 let currentEntityTable: MapEntityTable | null = null;
 let sharedLaneBank: readonly TileLane[] | null = null;
 let sharedObjectBankData: Uint8Array | null = null;
@@ -1009,7 +1022,28 @@ function renderGrid(): void {
             button.dataset.y = String(y);
             button.setAttribute('aria-label', `Tile at x ${x}, y ${y}`);
             button.innerHTML = '<canvas class="tile-preview" aria-hidden="true"></canvas><span class="tile-id"></span>';
-            button.addEventListener('click', () => selectCell(x, y));
+            button.addEventListener('click', (event) => {
+                if (consumeSuppressedMapClick()) return;
+                selectCell(x, y);
+            });
+            button.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                selectCell(x, y, { openPopup: true, anchorClientX: event.clientX, anchorClientY: event.clientY });
+            });
+            button.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                selectCell(x, y, { openPopup: true, anchorClientX: event.clientX, anchorClientY: event.clientY });
+            });
+            button.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    if (selectedCell?.x === x && selectedCell.y === y) {
+                        openPropertiesPopup({ kind: 'cell', x, y });
+                    } else {
+                        selectCell(x, y, { openPopup: true });
+                    }
+                }
+            });
             button.addEventListener('mouseenter', () => setHoveredCell(x, y));
             button.addEventListener('mouseleave', () => {
                 if (hoveredCell?.x === x && hoveredCell.y === y) setHoveredCell(null, null);
@@ -1170,7 +1204,10 @@ function renderEntityList(): void {
 
     const selectedExists = selectedEntitySlot !== null
         && currentEntityTable.entities.some((entity) => entity.slot === selectedEntitySlot);
-    if (!selectedExists) selectedEntitySlot = null;
+    if (!selectedExists) {
+        selectedEntitySlot = null;
+        if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity') closePropertiesPopup();
+    }
     entitySelect.value = selectedEntitySlot === null ? '' : String(selectedEntitySlot);
     renderEntityDetails();
 }
@@ -1527,7 +1564,25 @@ function renderEntityOverlay(): void {
         marker.classList.toggle('selected', selectedEntitySlot === entity.slot);
         marker.addEventListener('click', (event) => {
             event.stopPropagation();
+            if (consumeSuppressedMapClick()) return;
             selectEntity(entity.slot);
+        });
+        marker.addEventListener('dblclick', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            selectEntity(entity.slot, { openPopup: true, anchorClientX: event.clientX, anchorClientY: event.clientY });
+        });
+        marker.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            selectEntity(entity.slot, { openPopup: true, anchorClientX: event.clientX, anchorClientY: event.clientY });
+        });
+        marker.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                selectEntity(entity.slot, { openPopup: true });
+            }
         });
         overlay.append(marker);
     }
@@ -1639,11 +1694,17 @@ function parseEntityWord(value: string, label: string): number {
     return parsed;
 }
 
-function selectEntity(slot: number): void {
+function selectEntity(slot: number, options?: { openPopup?: boolean; anchorClientX?: number; anchorClientY?: number }): void {
     selectedEntitySlot = slot;
     entitySelect.value = String(slot);
     renderEntityDetails();
     refreshSelectedEntityMarker();
+    if (options?.openPopup) {
+        openPropertiesPopup({ kind: 'entity', slot }, options?.anchorClientX, options?.anchorClientY);
+    } else if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity') {
+        setPopupTarget({ kind: 'entity', slot });
+        positionPropertiesPopup();
+    }
 }
 
 function refreshSelectedEntityMarker(): void {
@@ -1731,17 +1792,132 @@ function entityMarkerText(entity: MapEntity): string {
     return '.';
 }
 
-function selectCell(x: number, y: number): void {
+function consumeSuppressedMapClick(): boolean {
+    if (!suppressNextMapClick) return false;
+    suppressNextMapClick = false;
+    return true;
+}
+
+function isPropertiesPopupOpen(): boolean {
+    return !propertiesPopup.hidden && propertiesPopupTarget !== null;
+}
+
+function closePropertiesPopup(): void {
+    propertiesPopup.hidden = true;
+    propertiesPopupTarget = null;
+    delete propertiesPopup.dataset.anchorX;
+    delete propertiesPopup.dataset.anchorY;
+    delete propertiesPopup.dataset.anchorSlot;
+}
+
+function setPopupTarget(target: PropertiesPopupTarget): void {
+    propertiesPopupTarget = target;
+    popupCellSection.hidden = target.kind !== 'cell';
+    popupEntitySection.hidden = target.kind !== 'entity';
+    if (target.kind === 'cell') {
+        popupTitle.textContent = `Cell (${target.x}, ${target.y})`;
+        propertiesPopup.dataset.anchorX = String(target.x);
+        propertiesPopup.dataset.anchorY = String(target.y);
+        delete propertiesPopup.dataset.anchorSlot;
+        updateCellDetails(target.x, target.y, readMapCell(activeData(), selectedMapOffset(), target.x, target.y));
+    } else {
+        popupTitle.textContent = `Entity #${target.slot}`;
+        propertiesPopup.dataset.anchorSlot = String(target.slot);
+        delete propertiesPopup.dataset.anchorX;
+        delete propertiesPopup.dataset.anchorY;
+        renderEntityDetails();
+    }
+}
+
+function positionPropertiesPopup(anchorClientX?: number, anchorClientY?: number): void {
+    const panelRect = grid.closest('.map-panel')?.getBoundingClientRect();
+    if (!panelRect) return;
+    propertiesPopup.style.maxWidth = `${Math.max(240, Math.floor(panelRect.width - 24))}px`;
+    const popupRect = propertiesPopup.getBoundingClientRect();
+    const width = popupRect.width || 320;
+    const height = popupRect.height || 240;
+
+    let left = 16;
+    let top = 16;
+    if (propertiesPopupTarget?.kind === 'cell') {
+        const cellButton = grid.querySelector<HTMLButtonElement>(`button.tile-cell[data-x="${propertiesPopupTarget.x}"][data-y="${propertiesPopupTarget.y}"]`);
+        if (cellButton) {
+            const rect = cellButton.getBoundingClientRect();
+            left = rect.right - panelRect.left + 10;
+            top = rect.top - panelRect.top - 8;
+            if (left + width > panelRect.width - 8) {
+                left = rect.left - panelRect.left - width - 10;
+            }
+        }
+    } else if (propertiesPopupTarget?.kind === 'entity') {
+        const marker = grid.querySelector<HTMLButtonElement>(`.entity-marker[data-slot="${propertiesPopupTarget.slot}"]`);
+        if (marker) {
+            const rect = marker.getBoundingClientRect();
+            left = rect.right - panelRect.left + 10;
+            top = rect.top - panelRect.top - 8;
+            if (left + width > panelRect.width - 8) {
+                left = rect.left - panelRect.left - width - 10;
+            }
+        }
+    } else if (anchorClientX !== undefined && anchorClientY !== undefined) {
+        left = anchorClientX - panelRect.left + 12;
+        top = anchorClientY - panelRect.top + 12;
+    }
+
+    left = Math.max(8, Math.min(left, panelRect.width - width - 8));
+    top = Math.max(8, Math.min(top, panelRect.height - height - 8));
+    propertiesPopup.style.left = `${Math.round(left)}px`;
+    propertiesPopup.style.top = `${Math.round(top)}px`;
+}
+
+function openPropertiesPopup(target: PropertiesPopupTarget, anchorClientX?: number, anchorClientY?: number): void {
+    propertiesPopup.hidden = false;
+    setPopupTarget(target);
+    positionPropertiesPopup(anchorClientX, anchorClientY);
+    requestAnimationFrame(() => {
+        if (propertiesPopup.hidden) return;
+        positionPropertiesPopup(anchorClientX, anchorClientY);
+        const focusTarget = target.kind === 'cell'
+            ? tileIdInput
+            : propertiesPopup.querySelector<HTMLElement>('input, select, textarea, button:not(.map-popup-close)');
+        focusTarget?.focus({ preventScroll: true });
+    });
+}
+
+function refreshPropertiesPopup(): void {
+    if (!isPropertiesPopupOpen() || !propertiesPopupTarget) return;
+    if (propertiesPopupTarget.kind === 'cell') {
+        if (!workingData) return;
+        const { x, y } = propertiesPopupTarget;
+        popupTitle.textContent = `Cell (${x}, ${y})`;
+        updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
+    } else {
+        popupTitle.textContent = `Entity #${propertiesPopupTarget.slot}`;
+        renderEntityDetails();
+    }
+    positionPropertiesPopup();
+}
+
+function selectCell(x: number, y: number, options?: { openPopup?: boolean; anchorClientX?: number; anchorClientY?: number }): void {
     selectedCell = { x, y };
     if (paintInput.checked) {
         writeMapCell(activeData(), selectedMapOffset(), x, y, readCellControls());
         updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
         renderGrid();
+        if (options?.openPopup || (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'cell')) {
+            openPropertiesPopup({ kind: 'cell', x, y }, options?.anchorClientX, options?.anchorClientY);
+        }
         return;
     }
 
     updateCellDetails(x, y, readMapCell(activeData(), selectedMapOffset(), x, y));
     renderGrid();
+    if (options?.openPopup) {
+        openPropertiesPopup({ kind: 'cell', x, y }, options?.anchorClientX, options?.anchorClientY);
+    } else if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'cell') {
+        setPopupTarget({ kind: 'cell', x, y });
+        positionPropertiesPopup();
+    }
 }
 
 function updateCellDetails(x: number, y: number, cell: MapCell): void {
@@ -1887,6 +2063,7 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     inversionOriginalLaneBankSource = '';
     inversionOriginalLaneBankApproximate = false;
     selectedCell = null;
+    closePropertiesPopup();
     paletteTileId = null;
     filenameLabel.textContent = sourceFilename;
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
@@ -1947,6 +2124,7 @@ function resetCurrentLeg(): void {
     const offset = selectedMapOffset();
     workingData.set(originalData.subarray(offset, offset + MAP_RESOURCE_SIZE), offset);
     selectedCell = null;
+    closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     refreshTilePreviews();
 }
@@ -1963,6 +2141,7 @@ function resetAll(): void {
     restoreInversionLaneBank();
     inversionApplied = false;
     selectedCell = null;
+    closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     refreshTilePreviews();
 }
@@ -2024,6 +2203,7 @@ function invertCourse(): void {
         inversionApplied = true;
         selectedCell = null;
         selectedEntitySlot = null;
+        closePropertiesPopup();
         paletteTileId = null;
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
@@ -2053,17 +2233,200 @@ courseSelect.addEventListener('change', () => {
 legSelect.addEventListener('change', () => {
     selectedCell = null;
     selectedEntitySlot = null;
+    closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
     if (workingData) refreshTilePreviews();
 });
 
-function applyMapZoom(): void {
-    const cellSize = Number(zoomInput.value);
-    if (!Number.isFinite(cellSize)) return;
-    grid.style.setProperty('--map-cell-size', `${cellSize}px`);
-    const percent = Math.round((cellSize / 18) * 100);
-    zoomValue.textContent = `${percent}%`;
+const MIN_MAP_CELL_SIZE = 12;
+const MAX_MAP_CELL_SIZE = 108;
+const DEFAULT_MAP_CELL_SIZE = 18;
+
+function clampMapCellSize(size: number): number {
+    return Math.max(MIN_MAP_CELL_SIZE, Math.min(MAX_MAP_CELL_SIZE, Math.round(size)));
 }
+
+function applyMapZoom(): void {
+    const cellSize = clampMapCellSize(Number(zoomInput.value));
+    zoomInput.value = String(cellSize);
+    grid.style.setProperty('--map-cell-size', `${cellSize}px`);
+    const percent = Math.round((cellSize / DEFAULT_MAP_CELL_SIZE) * 100);
+    zoomValue.textContent = `${percent}%`;
+    if (isPropertiesPopupOpen()) positionPropertiesPopup();
+}
+
+function setMapZoom(nextSize: number, anchor?: { clientX: number; clientY: number }): void {
+    const currentSize = clampMapCellSize(Number(zoomInput.value));
+    const clamped = clampMapCellSize(nextSize);
+    if (clamped === currentSize) return;
+
+    if (anchor) {
+        const rect = mapScroll.getBoundingClientRect();
+        const offsetX = anchor.clientX - rect.left + mapScroll.scrollLeft;
+        const offsetY = anchor.clientY - rect.top + mapScroll.scrollTop;
+        const ratio = clamped / currentSize;
+        zoomInput.value = String(clamped);
+        applyMapZoom();
+        mapScroll.scrollLeft = offsetX * ratio - (anchor.clientX - rect.left);
+        mapScroll.scrollTop = offsetY * ratio - (anchor.clientY - rect.top);
+        if (isPropertiesPopupOpen()) positionPropertiesPopup();
+        return;
+    }
+
+    zoomInput.value = String(clamped);
+    applyMapZoom();
+}
+
+function fitMapToView(): void {
+    const padding = 10;
+    const availableWidth = Math.max(64, mapScroll.clientWidth - padding);
+    const availableHeight = Math.max(64, mapScroll.clientHeight - padding);
+    const gap = 2;
+    const sizeByWidth = (availableWidth - gap * (MAP_WIDTH - 1)) / MAP_WIDTH;
+    const sizeByHeight = (availableHeight - gap * (MAP_HEIGHT - 1)) / MAP_HEIGHT;
+    setMapZoom(Math.floor(Math.min(sizeByWidth, sizeByHeight)));
+    mapScroll.scrollLeft = 0;
+    mapScroll.scrollTop = 0;
+    if (isPropertiesPopupOpen()) positionPropertiesPopup();
+}
+
+function resetMapZoom(): void {
+    setMapZoom(DEFAULT_MAP_CELL_SIZE);
+}
+
+popupCloseButton.addEventListener('click', closePropertiesPopup);
+zoomOutButton.addEventListener('click', () => setMapZoom(clampMapCellSize(Number(zoomInput.value)) - 2));
+zoomInButton.addEventListener('click', () => setMapZoom(clampMapCellSize(Number(zoomInput.value)) + 2));
+zoomFitButton.addEventListener('click', fitMapToView);
+zoomResetButton.addEventListener('click', resetMapZoom);
+
+document.addEventListener('pointerdown', (event) => {
+    if (!isPropertiesPopupOpen()) return;
+    const target = event.target as Node | null;
+    if (target && propertiesPopup.contains(target)) return;
+    closePropertiesPopup();
+    if (event.button !== 0) return;
+    suppressNextMapClick = true;
+    document.addEventListener('click', (clickEvent) => {
+        if (!suppressNextMapClick) return;
+        suppressNextMapClick = false;
+        const clickTarget = clickEvent.target as Node | null;
+        if (clickTarget instanceof Element && (clickTarget.closest('.tile-cell') || clickTarget.closest('.entity-marker'))) {
+            clickEvent.preventDefault();
+            clickEvent.stopPropagation();
+        }
+    }, { capture: true, once: true });
+}, true);
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && isPropertiesPopupOpen()) {
+        event.preventDefault();
+        closePropertiesPopup();
+        return;
+    }
+    if (event.key === 'Enter' && !isPropertiesPopupOpen()) {
+        const target = event.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+        if (target && target.closest('#map-properties-popup')) return;
+        if (selectedEntitySlot !== null && target?.closest('.entity-marker, #entity-select')) {
+            event.preventDefault();
+            selectEntity(selectedEntitySlot, { openPopup: true });
+            return;
+        }
+        if (selectedCell) {
+            event.preventDefault();
+            openPropertiesPopup({ kind: 'cell', x: selectedCell.x, y: selectedCell.y });
+        }
+    }
+});
+
+propertiesPopup.addEventListener('pointerdown', (event) => {
+    event.stopPropagation();
+});
+
+propertiesPopup.addEventListener('wheel', (event) => {
+    event.stopPropagation();
+}, { passive: true });
+
+mapScroll.addEventListener('wheel', (event) => {
+    if (event.ctrlKey) return;
+    event.preventDefault();
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const step = event.shiftKey ? 4 : 2;
+    setMapZoom(clampMapCellSize(Number(zoomInput.value)) + direction * step, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
+}, { passive: false });
+
+mapScroll.addEventListener('scroll', () => {
+    if (isPropertiesPopupOpen()) positionPropertiesPopup();
+});
+
+window.addEventListener('resize', () => {
+    if (isPropertiesPopupOpen()) positionPropertiesPopup();
+});
+
+let isSpacePanning = false;
+let activePan: { pointerId: number; startX: number; startY: number; scrollLeft: number; scrollTop: number } | null = null;
+
+window.addEventListener('keydown', (event) => {
+    if (event.code !== 'Space') return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+    if (!isSpacePanning) {
+        isSpacePanning = true;
+        mapScroll.classList.add('pan-ready');
+    }
+    if (event.target === document.body || mapScroll.contains(target) || target === mapScroll) {
+        event.preventDefault();
+    }
+});
+
+window.addEventListener('keyup', (event) => {
+    if (event.code !== 'Space') return;
+    isSpacePanning = false;
+    if (!activePan) mapScroll.classList.remove('pan-ready', 'panning');
+});
+
+mapScroll.addEventListener('pointerdown', (event) => {
+    const isMiddle = event.button === 1;
+    const isSpaceDrag = event.button === 0 && isSpacePanning;
+    if (!isMiddle && !isSpaceDrag) return;
+    if (isPropertiesPopupOpen()) {
+        const target = event.target as Node | null;
+        if (target && propertiesPopup.contains(target)) return;
+    }
+    activePan = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        scrollLeft: mapScroll.scrollLeft,
+        scrollTop: mapScroll.scrollTop,
+    };
+    mapScroll.classList.add('panning');
+    mapScroll.setPointerCapture(event.pointerId);
+    event.preventDefault();
+});
+
+mapScroll.addEventListener('pointermove', (event) => {
+    if (!activePan || activePan.pointerId !== event.pointerId) return;
+    mapScroll.scrollLeft = activePan.scrollLeft - (event.clientX - activePan.startX);
+    mapScroll.scrollTop = activePan.scrollTop - (event.clientY - activePan.startY);
+});
+
+function endMapPan(event?: PointerEvent): void {
+    if (!activePan) return;
+    if (event && activePan.pointerId !== event.pointerId) return;
+    if (event && mapScroll.hasPointerCapture(event.pointerId)) mapScroll.releasePointerCapture(event.pointerId);
+    activePan = null;
+    mapScroll.classList.remove('panning');
+    if (!isSpacePanning) mapScroll.classList.remove('pan-ready');
+}
+
+mapScroll.addEventListener('pointerup', endMapPan);
+mapScroll.addEventListener('pointercancel', endMapPan);
+mapScroll.addEventListener('lostpointercapture', () => endMapPan());
 
 showEntitiesInput.addEventListener('change', () => {
     if (workingData) renderGrid();
@@ -2080,9 +2443,15 @@ showWaypointsInput.addEventListener('change', () => {
 zoomInput.addEventListener('input', applyMapZoom);
 applyMapZoom();
 entitySelect.addEventListener('change', () => {
-    selectedEntitySlot = entitySelect.value === '' ? null : Number(entitySelect.value);
-    renderEntityDetails();
-    refreshSelectedEntityMarker();
+    const slot = entitySelect.value === '' ? null : Number(entitySelect.value);
+    if (slot === null) {
+        selectedEntitySlot = null;
+        renderEntityDetails();
+        refreshSelectedEntityMarker();
+        if (isPropertiesPopupOpen() && propertiesPopupTarget?.kind === 'entity') closePropertiesPopup();
+        return;
+    }
+    selectEntity(slot, { openPopup: true });
 });
 
 requiredElement<HTMLButtonElement>('apply-cell').addEventListener('click', applyCell);
@@ -2238,6 +2607,7 @@ fileInput.addEventListener('change', async () => {
         inversionApplied = false;
         selectedCell = null;
         selectedEntitySlot = null;
+        closePropertiesPopup();
         paletteTileId = null;
         filenameLabel.textContent = sourceFilename;
         cellDetails.textContent = 'Select a cell to inspect or edit it.';

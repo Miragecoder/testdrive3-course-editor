@@ -84,28 +84,7 @@
 
                             <section class="panel">
                                 <h2>Selected cell</h2>
-                                <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
-                                <label>
-                                    Tile ID <small>0–255</small>
-                                    <input id="tile-id" type="number" min="0" max="255" value="0">
-                                </label>
-                                <label>
-                                    Rotation
-                                    <select id="tile-rotation">
-                                        <option value="0">0°</option>
-                                        <option value="1">90°</option>
-                                        <option value="2">180°</option>
-                                        <option value="3">270°</option>
-                                    </select>
-                                </label>
-                                <label>
-                                    Elevation <small>0–63</small>
-                                    <input id="tile-elevation" type="number" min="0" max="63" value="0">
-                                </label>
-                                <div class="button-row">
-                                    <button id="apply-cell" type="button">Apply cell</button>
-                                    <button id="reset-cell" class="secondary" type="button">Reset cell</button>
-                                </div>
+                                <p class="subtle">Select a cell on the map. Right-click, double-click, or press Enter to open its properties popup. The popup lets you edit tile ID, rotation, and elevation.</p>
                             </section>
 
                             <section class="panel">
@@ -134,8 +113,7 @@
                                 </label>
                                 <p id="entity-summary" class="subtle">Loading entity records…</p>
                                 <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
-                                <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
-                                <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                                <p class="subtle">Select an entity from the list or map marker. Right-click, double-click, or press Enter on a marker/cell to open properties. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
                             </section>
 
                             <section class="panel">
@@ -338,22 +316,63 @@
                 <div class="panel-heading">
                     <div>
                         <h2>Tile grid</h2>
-                        <p>32 × 16 cells · click a cell to inspect it</p>
+                        <p>32 × 16 cells · left click select/paint · right click properties · wheel zoom · middle drag pan</p>
                     </div>
                     <div class="map-toggles">
                         <label class="paint-toggle">
                             <input id="paint-mode" type="checkbox">
                             Paint on click
                         </label>
-                        <label class="zoom-control" for="map-zoom">
-                            Zoom
-                            <input id="map-zoom" type="range" min="12" max="108" step="2" value="18">
-                            <span id="map-zoom-value">100%</span>
-                        </label>
+                        <div class="zoom-controls" aria-label="Map zoom controls">
+                            <button id="map-zoom-out" type="button" class="secondary zoom-btn" aria-label="Zoom out">−</button>
+                            <label class="zoom-control" for="map-zoom">
+                                <span class="sr-only">Zoom</span>
+                                <input id="map-zoom" type="range" min="12" max="108" step="2" value="18">
+                                <span id="map-zoom-value">100%</span>
+                            </label>
+                            <button id="map-zoom-in" type="button" class="secondary zoom-btn" aria-label="Zoom in">+</button>
+                            <button id="map-zoom-fit" type="button" class="secondary zoom-btn" title="Fit map to view">Fit</button>
+                            <button id="map-zoom-reset" type="button" class="secondary zoom-btn" title="Reset zoom to 100%">100%</button>
+                        </div>
                     </div>
                 </div>
-                <div class="map-scroll">
+                <div class="map-scroll" id="map-scroll">
                     <div id="map-grid" class="map-grid" role="grid" aria-label="32 by 16 tile map"></div>
+                </div>
+                <div id="map-properties-popup" class="map-properties-popup" hidden aria-label="Properties popup">
+                    <div class="map-popup-header">
+                        <h3 id="map-popup-title">Properties</h3>
+                        <button id="map-popup-close" type="button" class="secondary map-popup-close" aria-label="Close properties">×</button>
+                    </div>
+                    <div class="map-popup-body">
+                        <section id="map-popup-cell" class="map-popup-section" hidden>
+                            <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
+                            <label>
+                                Tile ID <small>0–255</small>
+                                <input id="tile-id" type="number" min="0" max="255" value="0">
+                            </label>
+                            <label>
+                                Rotation
+                                <select id="tile-rotation">
+                                    <option value="0">0°</option>
+                                    <option value="1">90°</option>
+                                    <option value="2">180°</option>
+                                    <option value="3">270°</option>
+                                </select>
+                            </label>
+                            <label>
+                                Elevation <small>0–63</small>
+                                <input id="tile-elevation" type="number" min="0" max="63" value="0">
+                            </label>
+                            <div class="button-row">
+                                <button id="apply-cell" type="button">Apply cell</button>
+                                <button id="reset-cell" class="secondary" type="button">Reset cell</button>
+                            </div>
+                        </section>
+                        <section id="map-popup-entity" class="map-popup-section" hidden>
+                            <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
+                        </section>
+                    </div>
                 </div>
                 <div class="legend">
                     <span><i class="swatch shared"></i> shared tiles 00–3F</span>
