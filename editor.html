@@ -71,215 +71,262 @@
                     <h2>Toolbox</h2>
                     <button id="toolbox-collapse" type="button" class="secondary toolbox-collapse" aria-expanded="true" aria-controls="toolbox-body" title="Collapse toolbox">«</button>
                 </div>
+                <div class="toolbox-tabs" id="toolbox-tabs" role="tablist" aria-label="Toolbox modes">
+                    <button type="button" class="toolbox-tab active" role="tab" id="toolbox-tab-tiles" aria-selected="true" aria-controls="toolbox-mode-tiles" data-mode="tiles">Tiles</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-entities" aria-selected="false" aria-controls="toolbox-mode-entities" data-mode="entities" tabindex="-1">Entities</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-routes-ai" aria-selected="false" aria-controls="toolbox-mode-routes-ai" data-mode="routes-ai" tabindex="-1">Routes &amp; AI</button>
+                    <button type="button" class="toolbox-tab" role="tab" id="toolbox-tab-leg-properties" aria-selected="false" aria-controls="toolbox-mode-leg-properties" data-mode="leg-properties" tabindex="-1">Leg Props</button>
+                </div>
                 <div class="toolbox-body" id="toolbox-body">
                     <div class="inspector">
-                        <section class="panel">
-                            <h2>Selected cell</h2>
-                            <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
-                            <label>
-                                Tile ID <small>0–255</small>
-                                <input id="tile-id" type="number" min="0" max="255" value="0">
-                            </label>
-                            <label>
-                                Rotation
-                                <select id="tile-rotation">
-                                    <option value="0">0°</option>
-                                    <option value="1">90°</option>
-                                    <option value="2">180°</option>
-                                    <option value="3">270°</option>
-                                </select>
-                            </label>
-                            <label>
-                                Elevation <small>0–63</small>
-                                <input id="tile-elevation" type="number" min="0" max="63" value="0">
-                            </label>
-                            <div class="button-row">
-                                <button id="apply-cell" type="button">Apply cell</button>
-                                <button id="reset-cell" class="secondary" type="button">Reset cell</button>
-                            </div>
-                        </section>
+                        <section class="toolbox-mode" id="toolbox-mode-tiles" role="tabpanel" aria-labelledby="toolbox-tab-tiles" data-mode="tiles">
+                            <p class="mode-scope"><span class="scope-chip scope-chip-leg">Leg-scoped</span> Tile editing for the active leg map.</p>
 
-                        <section class="panel">
-                            <h2>Tile palette</h2>
-                            <label>
-                                Tile bank
-                                <select id="palette-bank">
-                                    <option value="shared">Shared tiles</option>
-                                    <option value="course">Course tiles</option>
-                                </select>
-                            </label>
-                            <p class="subtle">Choose a cell and tile preview, then apply it. In paint mode, click map cells to place the selected tile.</p>
-                            <p class="subtle">Previews are top-down renders of the viewer's reconstructed 3D tile models.</p>
-                            <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
-                        </section>
-
-                        <section class="panel horizon-panel">
-                            <h2>Sky &amp; horizon</h2>
-                            <p class="subtle">Per-leg lighting mode and sky/gradient colors for the in-race view. Preview updates as you edit; click Apply to save changes to this leg.</p>
-                            <div class="horizon-preview-wrap">
-                                <canvas id="horizon-preview" width="280" height="72" aria-label="Sky and horizon preview"></canvas>
-                                <p id="horizon-preview-label" class="subtle"></p>
-                                <p id="horizon-preview-warning" class="horizon-preview-warning" aria-live="polite"></p>
-                            </div>
-
-                            <div class="horizon-section">
-                                <h3 class="horizon-subhead">Mode</h3>
-                                <div class="horizon-mode-row">
-                                    <label class="horizon-inline-field">Time of day
-                                        <select id="map-mode">
-                                            <option value="0">Night</option>
-                                            <option value="1">Day</option>
-                                            <option value="unknown" disabled>Unknown</option>
-                                        </select>
-                                    </label>
-                                    <button id="apply-mode-toggle" type="button">Switch mode</button>
-                                </div>
-                                <label class="horizon-check"><input id="horizon-preserve-variant" type="checkbox" checked> Keep this leg’s horizon variant when switching (recommended)</label>
-                                <button id="apply-mode-canonical" type="button" class="secondary horizon-secondary-action">Reset to canonical day/night colors</button>
-                            </div>
-
-                            <div class="horizon-section">
-                                <h3 class="horizon-subhead">Horizon gradient</h3>
-                                <div class="horizon-grid">
-                                    <label>Day sky base <small>0x2E</small><input id="sky-seed-2e" type="text" inputmode="numeric" spellcheck="false"></label>
-                                    <label>Night sky base <small>0x2F</small><input id="sky-seed-2f" type="text" inputmode="numeric" spellcheck="false"></label>
-                                    <label>Day sky accent <small>0x30</small><input id="sky-seed-30" type="text" inputmode="numeric" spellcheck="false"></label>
-                                    <label>Night sky accent <small>0x31</small><input id="sky-seed-31" type="text" inputmode="numeric" spellcheck="false"></label>
-                                </div>
-                                <div class="horizon-grid">
-                                    <label>Gradient selector <small>0x32–0x33</small><input id="sky-fog-seed" type="text" inputmode="numeric" spellcheck="false"></label>
-                                    <label>Selected color slot <small>index</small><input id="sky-remap-index" type="text" readonly></label>
-                                </div>
+                            <section class="panel">
+                                <h2>Selected cell</h2>
+                                <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
                                 <label>
-                                    Horizon color value <small>remap @ index, 0x1F27</small>
-                                    <input id="sky-remap-entry" type="text" inputmode="numeric" spellcheck="false">
+                                    Tile ID <small>0–255</small>
+                                    <input id="tile-id" type="number" min="0" max="255" value="0">
                                 </label>
-                                <div class="horizon-grid">
-                                    <label>Safe preset <small>recommended</small>
-                                        <select id="horizon-preset">
-                                            <option value="">Custom / unchanged</option>
-                                            <option value="day-clear">Day clear (smooth)</option>
-                                            <option value="night-clear">Night clear (smooth)</option>
-                                            <option value="dusk-warm">Dusk warm (smooth)</option>
-                                        </select>
+                                <label>
+                                    Rotation
+                                    <select id="tile-rotation">
+                                        <option value="0">0°</option>
+                                        <option value="1">90°</option>
+                                        <option value="2">180°</option>
+                                        <option value="3">270°</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    Elevation <small>0–63</small>
+                                    <input id="tile-elevation" type="number" min="0" max="63" value="0">
+                                </label>
+                                <div class="button-row">
+                                    <button id="apply-cell" type="button">Apply cell</button>
+                                    <button id="reset-cell" class="secondary" type="button">Reset cell</button>
+                                </div>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Tile palette</h2>
+                                <label>
+                                    Tile bank
+                                    <select id="palette-bank">
+                                        <option value="shared">Shared tiles</option>
+                                        <option value="course">Course tiles</option>
+                                    </select>
+                                </label>
+                                <p class="subtle">Choose a cell and tile preview, then apply it. In paint mode, click map cells to place the selected tile.</p>
+                                <p class="subtle">Previews are top-down renders of the viewer's reconstructed 3D tile models.</p>
+                                <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
+                            </section>
+                        </section>
+
+                        <section class="toolbox-mode" id="toolbox-mode-entities" role="tabpanel" aria-labelledby="toolbox-tab-entities" data-mode="entities" hidden>
+                            <p class="mode-scope"><span class="scope-chip scope-chip-leg">Leg-scoped</span> Entity placement and selection for the active leg.</p>
+
+                            <section class="panel">
+                                <h2>Placed entities</h2>
+                                <label class="paint-toggle mode-toggle">
+                                    <input id="show-entities" type="checkbox" checked>
+                                    Show entities on map
+                                </label>
+                                <p id="entity-summary" class="subtle">Loading entity records…</p>
+                                <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
+                                <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
+                                <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Highway shield sign generator</h2>
+                                <p class="subtle">Placeholder for a future highway shield/sign generator. Real 3D/object generation is not implemented in this phase.</p>
+                                <label>
+                                    Shield style
+                                    <select disabled aria-disabled="true">
+                                        <option>Interstate (stub)</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    Route number
+                                    <input type="text" value="" placeholder="e.g. 101" disabled aria-disabled="true">
+                                </label>
+                                <button type="button" class="secondary" disabled aria-disabled="true">Generate sign (coming soon)</button>
+                            </section>
+                        </section>
+
+                        <section class="toolbox-mode" id="toolbox-mode-routes-ai" role="tabpanel" aria-labelledby="toolbox-tab-routes-ai" data-mode="routes-ai" hidden>
+                            <p class="mode-scope"><span class="scope-chip scope-chip-leg">Leg-scoped</span> Route markers, branch paths, and opponent AI scripts.</p>
+
+                            <section class="panel">
+                                <h2>Route markers</h2>
+                                <div class="mode-toggle-group" aria-label="Route map overlays">
+                                    <label class="paint-toggle mode-toggle"><input id="show-route-1" type="checkbox" checked> Show AI route 1</label>
+                                    <label class="paint-toggle mode-toggle"><input id="show-route-2" type="checkbox" checked> Show AI route 2</label>
+                                    <label class="paint-toggle mode-toggle"><input id="show-waypoints" type="checkbox"> Show waypoints</label>
+                                </div>
+                                <p class="subtle">Each leg stores three route-trigger tile IDs in the map header. When the player is on a tile with one of these IDs, the game sets the route index used by the scorecard and per-route records.</p>
+                                <div class="route-marker-controls">
+                                    <label>
+                                        <span id="route-tile-label-0">Route 0</span> <small>tile ID 0–255</small>
+                                        <input id="route-tile-0" type="number" min="0" max="255" value="0">
                                     </label>
-                                    <div class="horizon-preset-actions">
-                                        <button id="apply-horizon-preset" type="button" class="secondary">Apply preset</button>
+                                    <label>
+                                        <span id="route-tile-label-1">Route 1</span> <small>tile ID 0–255</small>
+                                        <input id="route-tile-1" type="number" min="0" max="255" value="0">
+                                    </label>
+                                    <label>
+                                        <span id="route-tile-label-2">Route 2</span> <small>tile ID 0–255</small>
+                                        <input id="route-tile-2" type="number" min="0" max="255" value="0">
+                                    </label>
+                                </div>
+                                <p class="subtle">Cells using these tile IDs are highlighted on the map.</p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Opponent route scripts</h2>
+                                <p class="subtle">Paths use the course’s lane bank and opponent branch scripts; the finish is detected from tile surface geometry. When a required P.BIN is unavailable, the editor draws a dashed shared-bank candidate instead of presenting it as the in-game route.</p>
+                                <div id="opponent-scripts" class="route-script-list"></div>
+                                <p id="route-summary" class="subtle">Loading route scripts…</p>
+                                <p id="route-source" class="subtle">Loading lane bank…</p>
+                                <div id="route-traces" class="route-script-list" aria-live="polite"></div>
+                                <div class="button-row">
+                                    <button id="probe-routes" type="button" class="secondary">Generate AI paths</button>
+                                </div>
+                                <div id="probe-results" class="route-script-list subtle" aria-live="polite"></div>
+                                <div id="route-comparison" class="route-comparison"></div>
+                                <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
+                            </section>
+                        </section>
+
+                        <section class="toolbox-mode" id="toolbox-mode-leg-properties" role="tabpanel" aria-labelledby="toolbox-tab-leg-properties" data-mode="leg-properties" hidden>
+                            <p class="mode-scope"><span class="scope-chip scope-chip-leg">Leg-scoped</span> Sky, horizon, and leg metadata. <span class="scope-chip scope-chip-course">Course-scoped</span> Scene/LST strings and working copy actions.</p>
+
+                            <section class="panel horizon-panel">
+                                <h2>Sky &amp; horizon <span class="panel-scope">Leg</span></h2>
+                                <p class="subtle">Per-leg lighting mode and sky/gradient colors for the in-race view. Preview updates as you edit; click Apply to save changes to this leg.</p>
+                                <div class="horizon-preview-wrap">
+                                    <canvas id="horizon-preview" width="280" height="72" aria-label="Sky and horizon preview"></canvas>
+                                    <p id="horizon-preview-label" class="subtle"></p>
+                                    <p id="horizon-preview-warning" class="horizon-preview-warning" aria-live="polite"></p>
+                                </div>
+
+                                <div class="horizon-section">
+                                    <h3 class="horizon-subhead">Mode</h3>
+                                    <div class="horizon-mode-row">
+                                        <label class="horizon-inline-field">Time of day
+                                            <select id="map-mode">
+                                                <option value="0">Night</option>
+                                                <option value="1">Day</option>
+                                                <option value="unknown" disabled>Unknown</option>
+                                            </select>
+                                        </label>
+                                        <button id="apply-mode-toggle" type="button">Switch mode</button>
                                     </div>
+                                    <label class="horizon-check"><input id="horizon-preserve-variant" type="checkbox" checked> Keep this leg’s horizon variant when switching (recommended)</label>
+                                    <button id="apply-mode-canonical" type="button" class="secondary horizon-secondary-action">Reset to canonical day/night colors</button>
                                 </div>
-                                <details class="horizon-details">
-                                    <summary>About these values</summary>
-                                    <p class="subtle">The gradient is defined by per-leg color values (not a single global preset). Legs in the same scene can use different combinations, and the preview shows the resulting sky/horizon colors for the selected mode. The preview simulates the in-game VGA banded gradient; warnings appear when palette stepping can create artifacts like a black band.</p>
+
+                                <div class="horizon-section">
+                                    <h3 class="horizon-subhead">Horizon gradient</h3>
+                                    <div class="horizon-grid">
+                                        <label>Day sky base <small>0x2E</small><input id="sky-seed-2e" type="text" inputmode="numeric" spellcheck="false"></label>
+                                        <label>Night sky base <small>0x2F</small><input id="sky-seed-2f" type="text" inputmode="numeric" spellcheck="false"></label>
+                                        <label>Day sky accent <small>0x30</small><input id="sky-seed-30" type="text" inputmode="numeric" spellcheck="false"></label>
+                                        <label>Night sky accent <small>0x31</small><input id="sky-seed-31" type="text" inputmode="numeric" spellcheck="false"></label>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>Gradient selector <small>0x32–0x33</small><input id="sky-fog-seed" type="text" inputmode="numeric" spellcheck="false"></label>
+                                        <label>Selected color slot <small>index</small><input id="sky-remap-index" type="text" readonly></label>
+                                    </div>
+                                    <label>
+                                        Horizon color value <small>remap @ index, 0x1F27</small>
+                                        <input id="sky-remap-entry" type="text" inputmode="numeric" spellcheck="false">
+                                    </label>
+                                    <div class="horizon-grid">
+                                        <label>Safe preset <small>recommended</small>
+                                            <select id="horizon-preset">
+                                                <option value="">Custom / unchanged</option>
+                                                <option value="day-clear">Day clear (smooth)</option>
+                                                <option value="night-clear">Night clear (smooth)</option>
+                                                <option value="dusk-warm">Dusk warm (smooth)</option>
+                                            </select>
+                                        </label>
+                                        <div class="horizon-preset-actions">
+                                            <button id="apply-horizon-preset" type="button" class="secondary">Apply preset</button>
+                                        </div>
+                                    </div>
+                                    <details class="horizon-details">
+                                        <summary>About these values</summary>
+                                        <p class="subtle">The gradient is defined by per-leg color values (not a single global preset). Legs in the same scene can use different combinations, and the preview shows the resulting sky/horizon colors for the selected mode. The preview simulates the in-game VGA banded gradient; warnings appear when palette stepping can create artifacts like a black band.</p>
+                                    </details>
+                                </div>
+
+                                <div class="button-row button-row-wrap">
+                                    <button id="apply-horizon" type="button">Apply changes</button>
+                                    <button id="reset-horizon-leg" type="button" class="secondary">Reset this leg</button>
+                                </div>
+
+                                <div class="horizon-section">
+                                    <h3 class="horizon-subhead">Match another leg in this scene</h3>
+                                    <div id="copy-horizon-legs" class="horizon-leg-chips" aria-label="Copy horizon from leg"></div>
+                                    <button id="copy-horizon" type="button" class="secondary horizon-secondary-action" style="margin-top:8px;">Copy selected leg’s sky &amp; horizon</button>
+                                    <select id="copy-horizon-leg" hidden aria-hidden="true">
+                                        <option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option>
+                                    </select>
+                                </div>
+
+                                <p id="horizon-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Scene UI bitmaps <span class="panel-scope">Course / scene</span></h2>
+                                <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger).</p>
+                                <label>
+                                    Slot
+                                    <select id="scene-image-slot"></select>
+                                </label>
+                                <div id="scene-image-preview-wrap" style="margin:8px 0;min-height:40px;background:#0b0f16;border:1px solid #394150;border-radius:7px;padding:6px;display:flex;align-items:center;justify-content:center;overflow:auto;">
+                                    <canvas id="scene-image-preview" style="image-rendering:pixelated;max-width:100%;height:auto;"></canvas>
+                                </div>
+                                <p id="scene-image-info" class="subtle">Select a slot to preview it.</p>
+                                <div class="button-row" style="margin-top:8px;">
+                                    <button id="scene-image-export" type="button" class="secondary" disabled>Export PNG</button>
+                                    <button id="scene-image-replace" type="button" disabled>Replace from image…</button>
+                                    <button id="scene-image-fit-replace" type="button" disabled>Fit & replace…</button>
+                                    <input id="scene-image-file" type="file" accept="image/png,image/*" hidden>
+                                </div>
+                                <p id="scene-image-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>Scene strings (LST) <span class="panel-scope">Course / scene</span></h2>
+                                <p class="subtle">Edits the string values in the scene's .LST file. Route names are 36 fixed 12-character slots (space-padded). UI strings are stored in a fixed 250-byte region.</p>
+                                <label>
+                                    Course name <small>max 18 chars</small>
+                                    <input id="lst-course-name" type="text" maxlength="18" value="">
+                                </label>
+                                <details>
+                                    <summary style="cursor:pointer;color:#aeb8c7;font-size:11px;text-transform:uppercase;letter-spacing:.07em;">Route names (36)</summary>
+                                    <div id="lst-route-names" class="route-script-list" style="margin-top:10px;"></div>
                                 </details>
-                            </div>
-
-                            <div class="button-row button-row-wrap">
-                                <button id="apply-horizon" type="button">Apply changes</button>
-                                <button id="reset-horizon-leg" type="button" class="secondary">Reset this leg</button>
-                            </div>
-
-                            <div class="horizon-section">
-                                <h3 class="horizon-subhead">Match another leg in this scene</h3>
-                                <div id="copy-horizon-legs" class="horizon-leg-chips" aria-label="Copy horizon from leg"></div>
-                                <button id="copy-horizon" type="button" class="secondary horizon-secondary-action" style="margin-top:8px;">Copy selected leg’s sky &amp; horizon</button>
-                                <select id="copy-horizon-leg" hidden aria-hidden="true">
-                                    <option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option>
-                                </select>
-                            </div>
-
-                            <p id="horizon-feedback" class="route-editor-feedback" aria-live="polite"></p>
-                        </section>
-
-                        <section class="panel">
-                            <h2>Scene UI bitmaps</h2>
-                            <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger).</p>
-                            <label>
-                                Slot
-                                <select id="scene-image-slot"></select>
-                            </label>
-                            <div id="scene-image-preview-wrap" style="margin:8px 0;min-height:40px;background:#0b0f16;border:1px solid #394150;border-radius:7px;padding:6px;display:flex;align-items:center;justify-content:center;overflow:auto;">
-                                <canvas id="scene-image-preview" style="image-rendering:pixelated;max-width:100%;height:auto;"></canvas>
-                            </div>
-                            <p id="scene-image-info" class="subtle">Select a slot to preview it.</p>
-                            <div class="button-row" style="margin-top:8px;">
-                                <button id="scene-image-export" type="button" class="secondary" disabled>Export PNG</button>
-                                <button id="scene-image-replace" type="button" disabled>Replace from image…</button>
-                                <button id="scene-image-fit-replace" type="button" disabled>Fit & replace…</button>
-                                <input id="scene-image-file" type="file" accept="image/png,image/*" hidden>
-                            </div>
-                            <p id="scene-image-feedback" class="route-editor-feedback" aria-live="polite"></p>
-                        </section>
-
-                        <section class="panel">
-                            <h2>Placed entities</h2>
-                            <p id="entity-summary" class="subtle">Loading entity records…</p>
-                            <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
-                            <div id="entity-details" class="entity-details subtle">Select an entity or map marker to inspect its stored fields.</div>
-                            <p class="subtle">Markers are read-only. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
-                        </section>
-
-                        <section class="panel">
-                            <h2>Route markers</h2>
-                            <p class="subtle">Each leg stores three route-trigger tile IDs in the map header. When the player is on a tile with one of these IDs, the game sets the route index used by the scorecard and per-route records.</p>
-                            <div class="route-marker-controls">
                                 <label>
-                                    <span id="route-tile-label-0">Route 0</span> <small>tile ID 0–255</small>
-                                    <input id="route-tile-0" type="number" min="0" max="255" value="0">
+                                    UI strings <small>one per line, 0xAA-separated in file</small>
+                                    <textarea id="lst-ui-strings" rows="10" spellcheck="false" style="width:100%;padding:8px 10px;color:#eef2f8;border:1px solid #394150;border-radius:7px;background:#11161f;font:11px ui-monospace,monospace;resize:vertical;"></textarea>
                                 </label>
-                                <label>
-                                    <span id="route-tile-label-1">Route 1</span> <small>tile ID 0–255</small>
-                                    <input id="route-tile-1" type="number" min="0" max="255" value="0">
-                                </label>
-                                <label>
-                                    <span id="route-tile-label-2">Route 2</span> <small>tile ID 0–255</small>
-                                    <input id="route-tile-2" type="number" min="0" max="255" value="0">
-                                </label>
-                            </div>
-                            <p class="subtle">Cells using these tile IDs are highlighted on the map.</p>
-                        </section>
+                                <p id="lst-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                                <div class="button-row">
+                                    <button id="apply-lst" type="button">Apply LST strings</button>
+                                    <button id="reset-lst" class="secondary" type="button">Reset LST</button>
+                                </div>
+                            </section>
 
-                        <section class="panel">
-                            <h2>Opponent route scripts</h2>
-                            <p class="subtle">Paths use the course’s lane bank and opponent branch scripts; the finish is detected from tile surface geometry. When a required P.BIN is unavailable, the editor draws a dashed shared-bank candidate instead of presenting it as the in-game route.</p>
-                            <div id="opponent-scripts" class="route-script-list"></div>
-                            <p id="route-summary" class="subtle">Loading route scripts…</p>
-                            <p id="route-source" class="subtle">Loading lane bank…</p>
-                            <div id="route-traces" class="route-script-list" aria-live="polite"></div>
-                            <div class="button-row">
-                                <button id="probe-routes" type="button" class="secondary">Generate AI paths</button>
-                            </div>
-                            <div id="probe-results" class="route-script-list subtle" aria-live="polite"></div>
-                            <div id="route-comparison" class="route-comparison"></div>
-                            <p class="subtle">Mode 2 is default; 3 and 4 select alternate branch modes. A 0 ends that opponent’s script.</p>
-                        </section>
-
-                        <section class="panel">
-                            <h2>Scene strings (LST)</h2>
-                            <p class="subtle">Edits the string values in the scene's .LST file. Route names are 36 fixed 12-character slots (space-padded). UI strings are stored in a fixed 250-byte region.</p>
-                            <label>
-                                Course name <small>max 18 chars</small>
-                                <input id="lst-course-name" type="text" maxlength="18" value="">
-                            </label>
-                            <details>
-                                <summary style="cursor:pointer;color:#aeb8c7;font-size:11px;text-transform:uppercase;letter-spacing:.07em;">Route names (36)</summary>
-                                <div id="lst-route-names" class="route-script-list" style="margin-top:10px;"></div>
-                            </details>
-                            <label>
-                                UI strings <small>one per line, 0xAA-separated in file</small>
-                                <textarea id="lst-ui-strings" rows="10" spellcheck="false" style="width:100%;padding:8px 10px;color:#eef2f8;border:1px solid #394150;border-radius:7px;background:#11161f;font:11px ui-monospace,monospace;resize:vertical;"></textarea>
-                            </label>
-                            <p id="lst-feedback" class="route-editor-feedback" aria-live="polite"></p>
-                            <div class="button-row">
-                                <button id="apply-lst" type="button">Apply LST strings</button>
-                                <button id="reset-lst" class="secondary" type="button">Reset LST</button>
-                            </div>
-                        </section>
-
-                        <section class="panel">
-                            <h2>Working copy</h2>
-                            <p class="subtle">Edits stay in memory until you export. Original files are never overwritten.</p>
-                            <button id="reset-leg" class="secondary" type="button" disabled>Reset current leg</button>
-                            <button id="reset-all" class="secondary" type="button" disabled>Discard all edits</button>
+                            <section class="panel">
+                                <h2>Working copy <span class="panel-scope">Global</span></h2>
+                                <p class="subtle">Edits stay in memory until you export. Original files are never overwritten.</p>
+                                <button id="reset-leg" class="secondary" type="button" disabled>Reset current leg</button>
+                                <button id="reset-all" class="secondary" type="button" disabled>Discard all edits</button>
+                            </section>
                         </section>
                     </div>
                 </div>
@@ -297,22 +344,6 @@
                         <label class="paint-toggle">
                             <input id="paint-mode" type="checkbox">
                             Paint on click
-                        </label>
-                        <label class="paint-toggle">
-                            <input id="show-entities" type="checkbox" checked>
-                            Show entities
-                        </label>
-                        <label class="paint-toggle">
-                            <input id="show-route-1" type="checkbox" checked>
-                            Show AI route 1
-                        </label>
-                        <label class="paint-toggle">
-                            <input id="show-route-2" type="checkbox" checked>
-                            Show AI route 2
-                        </label>
-                        <label class="paint-toggle">
-                            <input id="show-waypoints" type="checkbox">
-                            Show waypoints
                         </label>
                         <label class="zoom-control" for="map-zoom">
                             Zoom

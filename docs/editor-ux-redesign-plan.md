@@ -3,7 +3,7 @@
 ## Status
 
 - [x] Phase 1 - App shell / layout refactor
-- [ ] Phase 2 - Toolbox modes and panel regrouping
+- [x] Phase 2 - Toolbox modes and panel regrouping
 - [ ] Phase 3 - Map interaction and properties popup
 - [ ] Phase 4 - Pattern-aware editing
 - [ ] Phase 5 - Polish and regression pass
@@ -227,6 +227,28 @@ Separate page: PLAYDISK.DAT editor
 - Phase 2 should add toolbox mode state (`tiles`, `entities`, `routes-ai`, `leg-properties`) and regroup existing panels into those modes; the toolbox body currently contains all panels in a single scrollable column.
 - Consider persisting toolbox width/collapse state (localStorage) if desired; currently resets on reload.
 - The Course Tools dialog uses native `<dialog>`; verify focus/ESC behavior across browsers during Phase 5 polish.
+- Run `npm run build` in a Node-enabled environment to confirm typecheck/build before shipping.
+
+## Phase 2 completion notes
+
+**Completed (2026-11-21):**
+- Added toolbox mode tabs and mode state in `editor.html`/`src/browser/editor.ts`: `Tiles`, `Entities`, `Routes & AI`, `Leg Props` (`tiles`, `entities`, `routes-ai`, `leg-properties`). Tab switching updates ARIA state and shows only the active mode panel.
+- Regrouped existing scene-editing panels into the four modes per the mapping table:
+  - **Tiles:** Selected cell, Tile palette (selected-cell popup deferred to Phase 3).
+  - **Entities:** Placed entities, Highway shield sign generator stub (disabled placeholder, clearly labeled not implemented).
+  - **Routes & AI:** Route markers and Opponent route scripts/route generation/validation together (no duplicate ownership).
+  - **Leg Properties:** Sky & horizon (Leg), Scene UI bitmaps (Course/scene), Scene strings/LST (Course/scene), Working copy (Global).
+- Added clear leg/course scope cues: per-mode scope banners and panel scope badges. Preserved all existing DOM IDs/hooks and editor event wiring; no domain behavior changes intended.
+- Kept PLAYDISK.DAT editor and SCENE03/Course Tools outside the scene-editing toolbox (unchanged from Phase 1).
+
+**Verification performed:**
+- Static ID check: all `requiredElement(...)` and `getElementById(...)` IDs referenced by `src/browser/editor.ts` are present in `editor.html`.
+- `npm run build` / `npm run typecheck` **not run**: Node/npm are not available in this sandbox environment (`node`/`npm` not found). Manual static review of HTML/CSS/TS changes performed instead.
+
+**Follow-ups / Phase 3 notes:**
+- Phase 3 should move Selected cell/tile properties into a right-click properties popup on the map, while keeping tile palette in Tiles mode.
+- Map paint/entity/route overlay toggles remain in the map toolbar; consider whether paint controls should also be surfaced in Tiles mode during Phase 3/5 polish.
+- Toolbox mode is currently in-memory only (resets on reload). Consider persisting active mode/width/collapse state in localStorage if desired.
 - Run `npm run build` in a Node-enabled environment to confirm typecheck/build before shipping.
 
 ## Pickup instructions for future sessions

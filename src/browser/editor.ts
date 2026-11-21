@@ -2638,6 +2638,8 @@ function parseCourseId(value: string): CourseId | null {
     return value in COURSE_LAYOUTS ? value as CourseId : null;
 }
 
+type ToolboxMode = 'tiles' | 'entities' | 'routes-ai' | 'leg-properties';
+
 function initEditorShell(): void {
     const workspace = document.getElementById('workspace');
     const toolboxPane = document.getElementById('toolbox-pane');
@@ -2668,6 +2670,39 @@ function initEditorShell(): void {
         courseToolsDialog.addEventListener('click', (event) => {
             if (event.target === courseToolsDialog) closeDialog();
         });
+    }
+
+    const toolboxTabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.toolbox-tab[data-mode]'));
+    const toolboxModes = Array.from(document.querySelectorAll<HTMLElement>('.toolbox-mode[data-mode]'));
+    const validModes: ToolboxMode[] = ['tiles', 'entities', 'routes-ai', 'leg-properties'];
+    let activeToolboxMode: ToolboxMode = 'tiles';
+
+    const setToolboxMode = (mode: ToolboxMode): void => {
+        activeToolboxMode = mode;
+        for (const tab of toolboxTabs) {
+            const tabMode = tab.dataset.mode;
+            const active = tabMode === mode;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', String(active));
+            tab.tabIndex = active ? 0 : -1;
+        }
+        for (const panel of toolboxModes) {
+            const active = panel.dataset.mode === mode;
+            panel.hidden = !active;
+        }
+    };
+
+    for (const tab of toolboxTabs) {
+        tab.addEventListener('click', () => {
+            const mode = tab.dataset.mode;
+            if (mode && (validModes as string[]).includes(mode)) {
+                setToolboxMode(mode as ToolboxMode);
+            }
+        });
+    }
+
+    if (toolboxTabs.length > 0 && toolboxModes.length > 0) {
+        setToolboxMode(activeToolboxMode);
     }
 
     if (!(workspace instanceof HTMLElement) || !(toolboxPane instanceof HTMLElement) || !(collapseButton instanceof HTMLButtonElement)) {
