@@ -98,6 +98,7 @@ const zoomOutButton = requiredElement<HTMLButtonElement>('map-zoom-out');
 const zoomInButton = requiredElement<HTMLButtonElement>('map-zoom-in');
 const zoomFitButton = requiredElement<HTMLButtonElement>('map-zoom-fit');
 const zoomResetButton = requiredElement<HTMLButtonElement>('map-zoom-reset');
+const showTileIdsInput = requiredElement<HTMLInputElement>('show-tile-ids');
 const propertiesPopup = requiredElement<HTMLDivElement>('map-properties-popup');
 const popupTitle = requiredElement<HTMLHeadingElement>('map-popup-title');
 const popupCloseButton = requiredElement<HTMLButtonElement>('map-popup-close');
@@ -2701,7 +2702,7 @@ function selectCell(x: number, y: number, options?: { openPopup?: boolean; ancho
 }
 
 function updateCellDetails(x: number, y: number, cell: MapCell): void {
-    tileIdInput.value = String(paletteTileId ?? cell.tileId);
+    tileIdInput.value = String(cell.tileId);
     rotationInput.value = String(cell.rotation);
     elevationInput.value = String(cell.elevation);
 
@@ -3125,7 +3126,54 @@ async function invertCourse(): Promise<void> {
             renderLstEditor();
         }
         workingData = sceneDat;
+        const tilePatchWarnings: string[] = [];
+        const patchTile = (legIndex: number, x: number, y: number, fromTileId: number, toTileId: number): void => {
+            const mapOffset = COURSE_LAYOUTS.SCENE01.mapOffsets[legIndex];
+            if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) {
+                tilePatchWarnings.push(`Leg ${legIndex + 1} (${x},${y}) out of range, skipped.`);
+                return;
+            }
+            const cell = readMapCell(workingData!, mapOffset, x, y);
+            if (cell.tileId !== fromTileId) {
+                tilePatchWarnings.push(`Leg ${legIndex + 1} (${x},${y}) expected tile 0x${fromTileId.toString(16).toUpperCase()} but found 0x${cell.tileId.toString(16).toUpperCase()}; replaced anyway.`);
+            }
+            writeMapCell(workingData!, mapOffset, x, y, { ...cell, tileId: toTileId });
+        };
+
+        // SCENE03-specific tile fixes before AI route regeneration.
+        // Tile 0x58 is a one-way three-way junction; 0x15 is the bidirectional equivalent.
+        patchTile(1, 3, 11, 0x58, 0x15); // leg2 (originally leg4)
+        patchTile(2, 3, 14, 0x58, 0x15); // leg3
+        patchTile(3, 28, 14, 0x58, 0x15); // leg4 (originally leg2)
+        patchTile(4, 28, 4, 0x58, 0x15); // leg5 (originally leg1)
+
+        // Leg 3 starting tile should be 0x31. Use entity map position (slot 0 cell field can be stale).
+        {
+            const leg3Offset = COURSE_LAYOUTS.SCENE01.mapOffsets[2];
+            const leg3Entities = readMapEntityTable(workingData, leg3Offset);
+            const player = leg3Entities.entities.find(e => e.modelId === 0x01);
+            if (player) {
+                const sx = Math.max(0, Math.min(MAP_WIDTH - 1, Math.floor(player.mapX)));
+                const sy = Math.max(0, Math.min(MAP_HEIGHT - 1, Math.floor(player.mapY)));
+                const startCell = readMapCell(workingData, leg3Offset, sx, sy);
+                writeMapCell(workingData, leg3Offset, sx, sy, { ...startCell, tileId: 0x31 });
+            } else {
+                tilePatchWarnings.push('Leg 3 player start entity not found; starting tile not patched.');
+            }
+        }
+
+        // Leg 3: (0,0) gets a road tile from 180° rotation of SCENE01 leg3 (31,15); clear it.
+        patchTile(2, 0, 0, readMapCell(workingData, COURSE_LAYOUTS.SCENE01.mapOffsets[2], 0, 0).tileId, 0x00);
+
+        // SCENE03 leg 5: set Day sky accent (sky seed 0x30) to 0x7A.
+        {
+            const leg5Offset = COURSE_LAYOUTS.SCENE01.mapOffsets[4];
+            const seeds = readSkySeeds(workingData, leg5Offset);
+            writeSkySeeds(workingData, leg5Offset, [seeds[0], seeds[1], 0x7A, seeds[3]]);
+        }
+
         const routeWarnings = regenerateAllOpponentRoutes(workingData, 'SCENE01', scene03LaneBank);
+        routeWarnings.unshift(...tilePatchWarnings);
         sceneImageOverrides.clear();
         for (const override of landscapeOverrides) {
             sceneImageOverrides.set(override.id, override.encoded);
@@ -3258,6 +3306,9 @@ zoomOutButton.addEventListener('click', () => setMapZoom(clampMapCellSize(Number
 zoomInButton.addEventListener('click', () => setMapZoom(clampMapCellSize(Number(zoomInput.value)) + 2));
 zoomFitButton.addEventListener('click', fitMapToView);
 zoomResetButton.addEventListener('click', resetMapZoom);
+showTileIdsInput.addEventListener('change', () => {
+    grid.classList.toggle('show-tile-ids', showTileIdsInput.checked);
+});
 
 document.addEventListener('pointerdown', (event) => {
     if (!isPropertiesPopupOpen()) return;

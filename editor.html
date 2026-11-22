@@ -397,6 +397,10 @@
                             <button id="map-zoom-in" type="button" class="secondary zoom-btn" aria-label="Zoom in" title="Zoom in (+)">+</button>
                             <button id="map-zoom-fit" type="button" class="secondary zoom-btn" title="Fit map to view (F)">Fit</button>
                             <button id="map-zoom-reset" type="button" class="secondary zoom-btn" title="Reset zoom to 100% (0)">100%</button>
+                            <label class="zoom-control" title="Show tile IDs on the map">
+                                <input id="show-tile-ids" type="checkbox">
+                                <span>IDs</span>
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -412,7 +416,7 @@
                         <section id="map-popup-cell" class="map-popup-section" hidden>
                             <p id="cell-details" class="subtle">Select a cell to inspect or edit it.</p>
                             <label>
-                                Tile ID <small>0–255</small>
+                                Tile ID <small>tileset ref, 0–255</small>
                                 <input id="tile-id" type="number" min="0" max="255" value="0">
                             </label>
                             <label>
