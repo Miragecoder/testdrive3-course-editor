@@ -190,6 +190,10 @@ export function lzwEncode(data: Uint8Array): Uint8Array {
     function emit(code: number): void {
         codes.push(code);
         widths.push(currentCodeBitLength);
+        // Expansion is delayed by one code: the decoder reads the triggering
+        // code, adds the entry, bumps nbits, then reads the NEXT code at the
+        // new width. So the code emitted immediately after the add uses the
+        // old width; the following code uses the new width.
         if (pendingExpansion && currentCodeBitLength < MAX_CODE_BIT_LENGTH) {
             currentCodeBitLength++;
             pendingExpansion = false;
@@ -198,8 +202,6 @@ export function lzwEncode(data: Uint8Array): Uint8Array {
 
     function checkCodeWidthExpansion(): void {
         if (nextCodeId >= (1 << currentCodeBitLength) && currentCodeBitLength < MAX_CODE_BIT_LENGTH) {
-            // Decoder expands after reading the code that triggered this add;
-            // the next code in the stream is still read with the old width.
             pendingExpansion = true;
         }
     }

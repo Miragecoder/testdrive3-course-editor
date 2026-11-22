@@ -313,7 +313,7 @@
 
                             <section class="panel">
                                 <h2>Scene UI bitmaps <span class="panel-scope">Course / scene</span></h2>
-                                <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger). For title/icon you can also generate from text (may require Fit to compress).</p>
+                                <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Scene image replacements (including title/icon and landA–F landscapes) are stored as overrides and recomposed into the DAT+LST on export, so they can exceed the original slot size. For title/icon you can also generate from text.</p>
                                 <label>
                                     Slot
                                     <select id="scene-image-slot"></select>

@@ -24,25 +24,25 @@ export interface ScenePaletteSlot {
 }
 
 export const SCENE01_IMAGE_SLOTS: SceneImageSlot[] = [
-    { id: 'title', offset: 0x00000, size: 0x0299, width: 320, height: 33, description: 'Route title image', pixelBase: 0 },
-    { id: 'icon', offset: 0x0029A, size: 0x01C0, width: 72, height: 40, description: 'Route icon image', pixelBase: 0 },
-    { id: 'landA', offset: 0x124C9, size: 0x1D6A, width: 320, height: 50, description: 'Landscape A (ground, set 1)', pixelBase: 0, paletteOffset: 0x12378 },
-    { id: 'landB', offset: 0x14234, size: 0x125B, width: 320, height: 19, description: 'Landscape B (sky, set 1)', pixelBase: 0, paletteOffset: 0x12378 },
-    { id: 'landC', offset: 0x1E5A2, size: 0x1C09, width: 320, height: 50, description: 'Landscape C (ground, set 2)', pixelBase: 0, paletteOffset: 0x1E451 },
-    { id: 'landD', offset: 0x201AC, size: 0x13B8, width: 320, height: 19, description: 'Landscape D (sky, set 2)', pixelBase: 0, paletteOffset: 0x1E451 },
-    { id: 'landE', offset: 0x2593B, size: 0x2C56, width: 320, height: 50, description: 'Landscape E (ground, set 3)', pixelBase: 0, paletteOffset: 0x257EA },
-    { id: 'landF', offset: 0x28592, size: 0x1052, width: 320, height: 19, description: 'Landscape F (sky, set 3)', pixelBase: 0, paletteOffset: 0x257EA },
+    { id: 'title', offset: 0x00000, size: 0x029A, width: 320, height: 33, description: 'Route title image', pixelBase: 0 },
+    { id: 'icon', offset: 0x0029A, size: 0x01C1, width: 72, height: 40, description: 'Route icon image', pixelBase: 0 },
+    { id: 'landA', offset: 0x124C9, size: 0x1D6B, width: 320, height: 50, description: 'Landscape A (ground, set 1)', pixelBase: 0, paletteOffset: 0x12378 },
+    { id: 'landB', offset: 0x14234, size: 0x125C, width: 320, height: 19, description: 'Landscape B (sky, set 1)', pixelBase: 0, paletteOffset: 0x12378 },
+    { id: 'landC', offset: 0x1E5A2, size: 0x1C0A, width: 320, height: 50, description: 'Landscape C (ground, set 2)', pixelBase: 0, paletteOffset: 0x1E451 },
+    { id: 'landD', offset: 0x201AC, size: 0x13B9, width: 320, height: 19, description: 'Landscape D (sky, set 2)', pixelBase: 0, paletteOffset: 0x1E451 },
+    { id: 'landE', offset: 0x2593B, size: 0x2C57, width: 320, height: 50, description: 'Landscape E (ground, set 3)', pixelBase: 0, paletteOffset: 0x257EA },
+    { id: 'landF', offset: 0x28592, size: 0x1053, width: 320, height: 19, description: 'Landscape F (sky, set 3)', pixelBase: 0, paletteOffset: 0x257EA },
 ];
 
 export const SCENE02_IMAGE_SLOTS: SceneImageSlot[] = [
-    { id: 'title', offset: 0x00000, size: 0x02BC, width: 320, height: 33, description: 'Route title image', pixelBase: 0 },
-    { id: 'icon', offset: 0x002BD, size: 0x01CA, width: 72, height: 40, description: 'Route icon image', pixelBase: 0 },
-    { id: 'landA', offset: 0x23818, size: 0x2171, width: 320, height: 50, description: 'Landscape A (ground, set 1)', pixelBase: 0, paletteOffset: 0x236C7 },
-    { id: 'landB', offset: 0x2598A, size: 0x08E8, width: 320, height: 19, description: 'Landscape B (sky, set 1)', pixelBase: 0, paletteOffset: 0x236C7 },
-    { id: 'landC', offset: 0x2A649, size: 0x2318, width: 320, height: 50, description: 'Landscape C (ground, set 2)', pixelBase: 0, paletteOffset: 0x2A4F8 },
-    { id: 'landD', offset: 0x2C962, size: 0x0F19, width: 320, height: 19, description: 'Landscape D (sky, set 2)', pixelBase: 0, paletteOffset: 0x2A4F8 },
-    { id: 'landE', offset: 0x2FB05, size: 0x27DA, width: 320, height: 50, description: 'Landscape E (ground, set 3)', pixelBase: 0, paletteOffset: 0x2F9B4 },
-    { id: 'landF', offset: 0x322E0, size: 0x0F6A, width: 320, height: 19, description: 'Landscape F (sky, set 3)', pixelBase: 0, paletteOffset: 0x2F9B4 },
+    { id: 'title', offset: 0x00000, size: 0x02BD, width: 320, height: 33, description: 'Route title image', pixelBase: 0 },
+    { id: 'icon', offset: 0x002BD, size: 0x01CB, width: 72, height: 40, description: 'Route icon image', pixelBase: 0 },
+    { id: 'landA', offset: 0x23818, size: 0x02172, width: 320, height: 50, description: 'Landscape A (ground, set 1)', pixelBase: 0, paletteOffset: 0x236C7 },
+    { id: 'landB', offset: 0x2598A, size: 0x008E9, width: 320, height: 19, description: 'Landscape B (sky, set 1)', pixelBase: 0, paletteOffset: 0x236C7 },
+    { id: 'landC', offset: 0x2A649, size: 0x02319, width: 320, height: 50, description: 'Landscape C (ground, set 2)', pixelBase: 0, paletteOffset: 0x2A4F8 },
+    { id: 'landD', offset: 0x2C962, size: 0x00F1A, width: 320, height: 19, description: 'Landscape D (sky, set 2)', pixelBase: 0, paletteOffset: 0x2A4F8 },
+    { id: 'landE', offset: 0x2FB05, size: 0x027DB, width: 320, height: 50, description: 'Landscape E (ground, set 3)', pixelBase: 0, paletteOffset: 0x2F9B4 },
+    { id: 'landF', offset: 0x322E0, size: 0x00F6B, width: 320, height: 19, description: 'Landscape F (sky, set 3)', pixelBase: 0, paletteOffset: 0x2F9B4 },
 ];
 
 export function getSceneImageSlots(courseId: 'SCENE01' | 'SCENE02'): SceneImageSlot[] {

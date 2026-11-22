@@ -172,7 +172,7 @@ export interface SceneArchiveEntry {
     resolvedName: string | null;
 }
 
-export function getSceneArchiveEntries(data: Uint8Array): SceneArchiveEntry[] {
+export function getSceneArchiveEntries(data: Uint8Array, resolveNames = true): SceneArchiveEntry[] {
     if (data.length !== SCENE_LST_SIZE) {
         throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
     }
@@ -185,7 +185,7 @@ export function getSceneArchiveEntries(data: Uint8Array): SceneArchiveEntry[] {
         const archiveChar = data[entryOffset + 4];
         const offset = readDword(data, entryOffset + 6);
         const size = readDword(data, entryOffset + 10);
-        const resolvedName = resolveScene01ArchiveName(h2, h1);
+        const resolvedName = resolveNames ? resolveScene01ArchiveName(h2, h1) : null;
         entries.push({ index, h2, h1, archiveChar, offset, size, resolvedName });
     }
     return entries;
@@ -193,7 +193,7 @@ export function getSceneArchiveEntries(data: Uint8Array): SceneArchiveEntry[] {
 
 export function findSceneArchiveEntryByName(data: Uint8Array, filename: string): SceneArchiveEntry | null {
     const [h2, h1] = hashArchiveFilename(filename);
-    const entries = getSceneArchiveEntries(data);
+    const entries = getSceneArchiveEntries(data, false);
     return entries.find(e => e.h2 === h2 && e.h1 === h1) ?? null;
 }
 
@@ -208,7 +208,7 @@ export function setSceneArchiveEntryOffsetSize(data: Uint8Array, index: number, 
 
 export function shiftSceneArchiveEntriesAfter(data: Uint8Array, afterOffset: number, delta: number): void {
     if (delta === 0) return;
-    const entries = getSceneArchiveEntries(data);
+    const entries = getSceneArchiveEntries(data, false);
     for (const e of entries) {
         if (e.offset >= afterOffset) {
             setSceneArchiveEntryOffsetSize(data, e.index, e.offset + delta, e.size);
@@ -250,6 +250,25 @@ function resolveScene01ArchiveName(h2: number, h1: number): string | null {
     return null;
 }
 
+function buildScene01NameLookup(): Map<string, string> {
+    const base = 'SCENE01';
+    const names: string[] = [];
+    for (const suf of ['.ICN', '.SIC', 'T.BIN', 'O.BIN', 'P.BIN']) names.push(base + suf);
+    for (const x of 'ABCDE12345') for (const ext of ['.DAT', '.BIN', '.COL', '.MUS', '.ALZ', '.BLZ']) names.push(base + x + ext);
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    for (let i = 0; i < chars.length; i++) for (let j = 0; j < chars.length; j++) {
+        const ab = chars[i] + chars[j];
+        for (const ext of ['.COL', '.DAT', '.BIN', '.LZ', '.MUS', '.ALZ', '.BLZ']) names.push(base + ab + ext);
+    }
+    const lookup = new Map<string, string>();
+    for (const name of names) {
+        const [h2, h1] = hashArchiveFilename(name);
+        const key = `${h2},${h1}`;
+        if (!lookup.has(key)) lookup.set(key, name);
+    }
+    return lookup;
+}
+
 export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array {
     if (scene01Lst.length !== SCENE_LST_SIZE) {
         throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
@@ -258,12 +277,13 @@ export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array 
     // Generated SCENE03 experiment ships private O/P lane/object banks (SCENE03O.BIN, SCENE03P.BIN).
     // Mark the scene as owning its O/P sets so the engine loads them instead of shared banks.
     out[0x57] = 0x00;
+    const nameLookup = buildScene01NameLookup();
     for (let index = 0; index < SCENE_ARCHIVE_ENTRY_COUNT; index++) {
         const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
         const h2 = readWord(out, entryOffset);
         const h1 = readWord(out, entryOffset + 2);
         if (h2 === 0 && h1 === 0) break;
-        const name = resolveScene01ArchiveName(h2, h1);
+        const name = nameLookup.get(`${h2},${h1}`);
         if (!name || !name.startsWith('SCENE01')) continue;
         const renamed = 'SCENE03' + name.slice('SCENE01'.length);
         const nh = hashArchiveFilename(renamed);
