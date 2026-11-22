@@ -150,6 +150,72 @@ function writeWord(data: Uint8Array, offset: number, value: number): void {
     data[offset + 1] = (value >>> 8) & 0xFF;
 }
 
+function readDword(data: Uint8Array, offset: number): number {
+    return (data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24)) >>> 0;
+}
+
+function writeDword(data: Uint8Array, offset: number, value: number): void {
+    const v = value >>> 0;
+    data[offset] = v & 0xFF;
+    data[offset + 1] = (v >>> 8) & 0xFF;
+    data[offset + 2] = (v >>> 16) & 0xFF;
+    data[offset + 3] = (v >>> 24) & 0xFF;
+}
+
+export interface SceneArchiveEntry {
+    index: number;
+    h2: number;
+    h1: number;
+    archiveChar: number;
+    offset: number;
+    size: number;
+    resolvedName: string | null;
+}
+
+export function getSceneArchiveEntries(data: Uint8Array): SceneArchiveEntry[] {
+    if (data.length !== SCENE_LST_SIZE) {
+        throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
+    }
+    const entries: SceneArchiveEntry[] = [];
+    for (let index = 0; index < SCENE_ARCHIVE_ENTRY_COUNT; index++) {
+        const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
+        const h2 = readWord(data, entryOffset);
+        const h1 = readWord(data, entryOffset + 2);
+        if (h2 === 0 && h1 === 0) break;
+        const archiveChar = data[entryOffset + 4];
+        const offset = readDword(data, entryOffset + 6);
+        const size = readDword(data, entryOffset + 10);
+        const resolvedName = resolveScene01ArchiveName(h2, h1);
+        entries.push({ index, h2, h1, archiveChar, offset, size, resolvedName });
+    }
+    return entries;
+}
+
+export function findSceneArchiveEntryByName(data: Uint8Array, filename: string): SceneArchiveEntry | null {
+    const [h2, h1] = hashArchiveFilename(filename);
+    const entries = getSceneArchiveEntries(data);
+    return entries.find(e => e.h2 === h2 && e.h1 === h1) ?? null;
+}
+
+export function setSceneArchiveEntryOffsetSize(data: Uint8Array, index: number, newOffset: number, newSize: number): void {
+    if (!Number.isInteger(index) || index < 0 || index >= SCENE_ARCHIVE_ENTRY_COUNT) {
+        throw new RangeError(`Archive entry index must be between 0 and ${SCENE_ARCHIVE_ENTRY_COUNT - 1}.`);
+    }
+    const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
+    writeDword(data, entryOffset + 6, newOffset >>> 0);
+    writeDword(data, entryOffset + 10, newSize >>> 0);
+}
+
+export function shiftSceneArchiveEntriesAfter(data: Uint8Array, afterOffset: number, delta: number): void {
+    if (delta === 0) return;
+    const entries = getSceneArchiveEntries(data);
+    for (const e of entries) {
+        if (e.offset >= afterOffset) {
+            setSceneArchiveEntryOffsetSize(data, e.index, e.offset + delta, e.size);
+        }
+    }
+}
+
 function resolveScene01ArchiveName(h2: number, h1: number): string | null {
     const preferred: string[] = [];
     const base = 'SCENE01';

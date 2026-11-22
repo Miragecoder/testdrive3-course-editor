@@ -69,6 +69,9 @@ import {
     writeRouteName,
     writeUiStrings,
     createScene03LstFromScene01,
+    getSceneArchiveEntries,
+    setSceneArchiveEntryOffsetSize,
+    shiftSceneArchiveEntriesAfter,
 } from '@shared/scene-lst';
 import {
     decodeSceneImageSlot,
@@ -80,7 +83,9 @@ import {
 } from '@shared/scene-dat-images';
 import {
     applyPaletteLayer,
+    applyPixelBase,
     createDefaultPalette,
+    decodeTd3Image,
     replaceTd3ImageSlot,
 } from '@shared/td3-image';
 
@@ -135,8 +140,7 @@ const dirtyIndicator = requiredElement<HTMLElement>('dirty-indicator');
 const fileInput = requiredElement<HTMLInputElement>('custom-dat');
 const filenameLabel = requiredElement<HTMLSpanElement>('source-filename');
 const lstFilenameLabel = requiredElement<HTMLSpanElement>('lst-filename');
-const exportButton = requiredElement<HTMLButtonElement>('export-dat');
-const exportLstButton = requiredElement<HTMLButtonElement>('export-lst');
+const exportPackageButton = requiredElement<HTMLButtonElement>('export-package');
 const lstCourseNameInput = requiredElement<HTMLInputElement>('lst-course-name');
 const lstRouteNamesEl = requiredElement<HTMLDivElement>('lst-route-names');
 const lstUiStringsInput = requiredElement<HTMLTextAreaElement>('lst-ui-strings');
@@ -157,6 +161,9 @@ const sceneImageReplaceButton = requiredElement<HTMLButtonElement>('scene-image-
 const sceneImageFitReplaceButton = requiredElement<HTMLButtonElement>('scene-image-fit-replace');
 const sceneImageFileInput = requiredElement<HTMLInputElement>('scene-image-file');
 const sceneImageFeedback = requiredElement<HTMLParagraphElement>('scene-image-feedback');
+const sceneGenStartInput = requiredElement<HTMLInputElement>('scene-gen-start');
+const sceneGenDestInput = requiredElement<HTMLInputElement>('scene-gen-dest');
+const sceneImageGenerateButton = requiredElement<HTMLButtonElement>('scene-image-generate');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
 const clusterSelect = requiredElement<HTMLSelectElement>('cluster-select');
@@ -222,6 +229,8 @@ let inversionOriginalLaneBank: readonly TileLane[] | null = null;
 let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
 let pendingSceneImageReplaceAutoFit = false;
+let titleOverrideEncoded: Uint8Array | null = null;
+let iconOverrideEncoded: Uint8Array | null = null;
 
 interface TileClusterCell {
     readonly dx: number;
@@ -309,13 +318,24 @@ function renderSceneImagePreview(slot: SceneImageSlot): void {
         sceneImageInfo.textContent = 'Open a course DAT file first.';
         sceneImageExportButton.disabled = true;
         sceneImageReplaceButton.disabled = true;
+        sceneImageGenerateButton.disabled = true;
         const ctx = sceneImagePreview.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, sceneImagePreview.width, sceneImagePreview.height);
         return;
     }
 
     try {
-        const decoded = decodeSceneImageSlot(workingData, slot);
+        let decoded: Uint8Array;
+        let shownSize = slot.size;
+        if (slot.id === 'title' && titleOverrideEncoded) {
+            decoded = applyPixelBase(decodeTd3Image(titleOverrideEncoded, slot.width).indexedPixels, slot.pixelBase);
+            shownSize = titleOverrideEncoded.length;
+        } else if (slot.id === 'icon' && iconOverrideEncoded) {
+            decoded = applyPixelBase(decodeTd3Image(iconOverrideEncoded, slot.width).indexedPixels, slot.pixelBase);
+            shownSize = iconOverrideEncoded.length;
+        } else {
+            decoded = decodeSceneImageSlot(workingData, slot);
+        }
         const palette = sceneImagePaletteForSlot(workingData, slot);
         const width = slot.width;
         const height = slot.height ?? Math.floor(decoded.length / width);
@@ -329,7 +349,7 @@ function renderSceneImagePreview(slot: SceneImageSlot): void {
         if (!ctx) throw new Error('Could not create canvas context for image preview.');
         const imageData = ctx.createImageData(width, height);
         for (let y = 0; y < height; y++) {
-            const srcY = height - 1 - y; // TD3 images stored bottom-to-top
+            const srcY = height - 1 - y;
             for (let x = 0; x < width; x++) {
                 const idx = decoded[srcY * width + x] ?? 0;
                 const p = idx * 3;
@@ -343,12 +363,12 @@ function renderSceneImagePreview(slot: SceneImageSlot): void {
         ctx.putImageData(imageData, 0, 0);
 
         const slotCourse = getSceneImageCourseId();
-        const compressedSize = workingData ? slot.size : 0;
-        sceneImageInfo.textContent = `${slotCourse ?? courseId} · ${slot.description} · ${width}×${height} · slot 0x${slot.offset.toString(16)} (${slot.size} bytes)`;
-        void compressedSize;
+        const overrideNote = ((slot.id === 'title' && titleOverrideEncoded) || (slot.id === 'icon' && iconOverrideEncoded)) ? ' (override, will be recomposed on export)' : '';
+        sceneImageInfo.textContent = `${slotCourse ?? courseId} · ${slot.description} · ${width}×${height} · slot 0x${slot.offset.toString(16)} (${shownSize} bytes)${overrideNote}`;
         sceneImageExportButton.disabled = false;
         sceneImageReplaceButton.disabled = !slotCourse;
         sceneImageFitReplaceButton.disabled = !slotCourse;
+        sceneImageGenerateButton.disabled = !(slotCourse && (slot.id === 'title' || slot.id === 'icon'));
     } catch (error) {
         sceneImageInfo.textContent = 'Could not decode this image slot.';
         sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Decode failed.';
@@ -356,6 +376,7 @@ function renderSceneImagePreview(slot: SceneImageSlot): void {
         sceneImageExportButton.disabled = true;
         sceneImageReplaceButton.disabled = true;
         sceneImageFitReplaceButton.disabled = true;
+        sceneImageGenerateButton.disabled = true;
     }
 }
 
@@ -375,6 +396,7 @@ function refreshSceneImageUI(): void {
         sceneImageExportButton.disabled = true;
         sceneImageReplaceButton.disabled = true;
         sceneImageFitReplaceButton.disabled = true;
+        sceneImageGenerateButton.disabled = true;
         const ctx = sceneImagePreview.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, sceneImagePreview.width, sceneImagePreview.height);
         return;
@@ -415,6 +437,94 @@ function exportSceneImagePng(): void {
         sceneImageFeedback.classList.remove('error');
     } catch (error) {
         sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Could not export image.';
+        sceneImageFeedback.classList.add('error');
+    }
+}
+
+function generateIndexedFromCanvas(slot: SceneImageSlot, canvas: HTMLCanvasElement): Uint8Array {
+    const width = slot.width;
+    const height = slot.height ?? canvas.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Could not get canvas context.');
+    const rgba = ctx.getImageData(0, 0, width, height).data;
+    const palette = sceneImagePaletteForSlot(workingData!, slot);
+    const allowedIndices = sceneImageAllowedIndices(slot);
+    const indexed = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+        const dstY = height - 1 - y;
+        for (let x = 0; x < width; x++) {
+            const si = (y * width + x) * 4;
+            indexed[dstY * width + x] = nearestPaletteIndex(rgba[si], rgba[si + 1], rgba[si + 2], palette, allowedIndices);
+        }
+    }
+    return indexed;
+}
+
+function generateSceneImageFromText(slot: SceneImageSlot): void {
+    if (!workingData) return;
+    const start = sceneGenStartInput.value.trim();
+    const dest = sceneGenDestInput.value.trim();
+    if (!start && !dest) {
+        sceneImageFeedback.textContent = 'Enter at least a start or destination name.';
+        sceneImageFeedback.classList.add('error');
+        return;
+    }
+    const text = dest ? `${start} - ${dest}`.replace(/^\s*-\s*/, '').replace(/\s*-\s*$/, '') : start;
+    const width = slot.width;
+    const height = slot.height ?? 0;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        sceneImageFeedback.textContent = 'Could not create canvas.';
+        sceneImageFeedback.classList.add('error');
+        return;
+    }
+    // Fill background black
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, width, height);
+    // Draw text
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Simple font sizing
+    let fontSize = Math.max(8, Math.floor(height * 0.55));
+    if (width < 150) fontSize = Math.max(6, Math.floor(height * 0.5));
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    // Try to fit text
+    let metrics = ctx.measureText(text);
+    if (metrics.width > width - 4) {
+        fontSize = Math.max(6, Math.floor(fontSize * (width - 4) / metrics.width));
+        ctx.font = `bold ${fontSize}px sans-serif`;
+    }
+    ctx.fillText(text, width / 2, height / 2);
+    try {
+        const indexed = generateIndexedFromCanvas(slot, canvas);
+        const palette = sceneImagePaletteForSlot(workingData, slot);
+        let encoded = encodeSceneImageSlot(indexed, slot);
+        if (encoded.length > slot.size) {
+            const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
+            if (fit) encoded = fit.encoded;
+        }
+        if (slot.id === 'title' || slot.id === 'icon') {
+            if (slot.id === 'title') titleOverrideEncoded = encoded;
+            if (slot.id === 'icon') iconOverrideEncoded = encoded;
+            renderSceneImagePreview(slot);
+            updateStatus();
+            const note = encoded.length > slot.size ? ` (expanded by ${encoded.length - slot.size} bytes; will repack on export)` : '';
+            sceneImageFeedback.textContent = `Generated ${slot.id}${note}. Export DAT+LST to apply.`;
+            sceneImageFeedback.classList.remove('error');
+            return;
+        }
+        // Non-title/icon: old behavior
+        replaceTd3ImageSlot(workingData, slot.offset, slot.size, encoded);
+        renderSceneImagePreview(slot);
+        updateStatus();
+        sceneImageFeedback.textContent = `Generated and replaced ${slot.id} (${encoded.length}/${slot.size} bytes).`;
+        sceneImageFeedback.classList.remove('error');
+    } catch (error) {
+        sceneImageFeedback.textContent = error instanceof Error ? error.message : 'Could not generate image.';
         sceneImageFeedback.classList.add('error');
     }
 }
@@ -531,6 +641,22 @@ async function replaceSceneImageFromFile(file: File, autoFit: boolean): Promise<
                 }
             }
 
+            if (slot.id === 'title' || slot.id === 'icon') {
+                let encoded = encodeSceneImageSlot(indexed, slot);
+                if (encoded.length > slot.size || autoFit) {
+                    const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
+                    if (fit) encoded = fit.encoded;
+                }
+                if (slot.id === 'title') titleOverrideEncoded = encoded;
+                if (slot.id === 'icon') iconOverrideEncoded = encoded;
+                renderSceneImagePreview(slot);
+                updateStatus();
+                const note = encoded.length > slot.size ? ` (expanded by ${encoded.length - slot.size} bytes; will repack on export)` : '';
+                sceneImageFeedback.textContent = `Replaced ${slot.id} from file${note}. Export DAT+LST to apply.`;
+                sceneImageFeedback.classList.remove('error');
+                return;
+            }
+            // Other slots: old behavior
             const direct = tryReplaceSceneImageSlot(workingData, slot, indexed);
             if (direct.ok) {
                 renderSceneImagePreview(slot);
@@ -539,21 +665,33 @@ async function replaceSceneImageFromFile(file: File, autoFit: boolean): Promise<
                 sceneImageFeedback.classList.remove('error');
                 return;
             }
-
-            if (!autoFit) {
-                throw new Error(`${direct.reason} Try "Fit & replace…" to simplify colors until it fits.`);
+            let encodedToWrite: Uint8Array | null = null;
+            if (autoFit) {
+                const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
+                if (fit) encodedToWrite = fit.encoded;
             }
-
-            const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
-            if (!fit) {
-                throw new Error(`${direct.reason} Could not auto-fit within slot size.`);
+            if (!encodedToWrite) {
+                try {
+                    const encoded2 = encodeSceneImageSlot(indexed, slot);
+                    if (encoded2.length <= slot.size) {
+                        replaceTd3ImageSlot(workingData, slot.offset, slot.size, encoded2);
+                        encodedToWrite = encoded2;
+                    } else {
+                        throw new Error('too big');
+                    }
+                } catch {
+                    sceneImageFeedback.textContent = `${direct.reason} Try "Fit & replace…".`;
+                    sceneImageFeedback.classList.add('error');
+                    return;
+                }
+            } else {
+                replaceTd3ImageSlot(workingData, slot.offset, slot.size, encodedToWrite);
             }
-            // Write fitted result
-            replaceTd3ImageSlot(workingData, slot.offset, slot.size, fit.encoded);
             renderSceneImagePreview(slot);
             updateStatus();
-            sceneImageFeedback.textContent = `Replaced ${slot.id} after fitting (${fit.encoded.length}/${slot.size} bytes, ~${fit.colors} colors).`;
+            sceneImageFeedback.textContent = `Replaced ${slot.id} (${encodedToWrite!.length}/${slot.size} bytes).`;
             sceneImageFeedback.classList.remove('error');
+            return;
         } finally {
             bitmap.close();
         }
@@ -990,9 +1128,8 @@ function updateStatus(): void {
     const modeLabel = mode === 0 ? 'Night/dark' : mode === 1 ? 'Day/light' : `Unknown (${mode})`;
     updateStatusContext();
     setStatus(`${modeLabel} · ${countEditedCells()} edited map cells`);
-    exportButton.disabled = false;
-    exportButton.textContent = inversionApplied ? 'Export SCENE03.DAT' : 'Export edited DAT';
-    exportLstButton.disabled = !workingLstData;
+    exportPackageButton.disabled = false;
+    exportPackageButton.textContent = inversionApplied ? 'Export SCENE03 package (DAT+LST)' : 'Export scene (DAT+LST)';
     exportLaneBankButton.disabled = !inversionApplied || !invertedLaneBankData;
     exportObjectBankButton.disabled = !inversionApplied || !invertedObjectBankData;
     invertCourseButton.disabled = inversionApplied || courseId !== 'SCENE01';
@@ -2567,6 +2704,8 @@ async function loadBuiltInCourse(id: CourseId): Promise<void> {
     originalData = bytes.slice();
     workingData = bytes.slice();
     inversionApplied = false;
+    titleOverrideEncoded = null;
+    iconOverrideEncoded = null;
     invertedLaneBankData = null;
     invertedObjectBankData = null;
     inversionOriginalLaneBank = null;
@@ -2592,18 +2731,105 @@ function validateCourseFile(data: Uint8Array, id: CourseId): void {
     }
 }
 
-function downloadData(): void {
-    if (!workingData) return;
+function buildExportDat(): { data: Uint8Array; filename: string } | null {
+    if (!workingData) return null;
     const stem = sourceFilename.replace(/\.DAT$/i, '');
-    const exportBuffer = new ArrayBuffer(workingData.byteLength);
-    new Uint8Array(exportBuffer).set(workingData);
+    let exportData = workingData;
+    if (titleOverrideEncoded || iconOverrideEncoded) {
+        try {
+            exportData = workingData.slice();
+            const courseSlots = getSceneImageSlots((inversionApplied ? 'SCENE01' : courseId) as 'SCENE01' | 'SCENE02');
+            const titleSlot = courseSlots.find(s => s.id === 'title');
+            const iconSlot = courseSlots.find(s => s.id === 'icon');
+            if (titleSlot && titleOverrideEncoded) {
+                const delta = titleOverrideEncoded.length - titleSlot.size;
+                const newData = new Uint8Array(exportData.length + delta);
+                newData.set(exportData.subarray(0, titleSlot.offset), 0);
+                newData.set(titleOverrideEncoded, titleSlot.offset);
+                newData.set(exportData.subarray(titleSlot.offset + titleSlot.size), titleSlot.offset + titleOverrideEncoded.length);
+                exportData = newData;
+                if (workingLstData) {
+                    const entries = getSceneArchiveEntries(workingLstData);
+                    const matching = entries.find(e => e.offset === titleSlot.offset);
+                    if (matching) setSceneArchiveEntryOffsetSize(workingLstData, matching.index, titleSlot.offset, titleOverrideEncoded.length);
+                    shiftSceneArchiveEntriesAfter(workingLstData, titleSlot.offset + titleSlot.size, delta);
+                }
+            }
+            if (iconSlot && iconOverrideEncoded) {
+                const titleDelta = titleOverrideEncoded ? (titleOverrideEncoded.length - (titleSlot?.size ?? 0)) : 0;
+                const iconOffset = iconSlot.offset + titleDelta;
+                const delta = iconOverrideEncoded.length - iconSlot.size;
+                const newData = new Uint8Array(exportData.length + delta);
+                newData.set(exportData.subarray(0, iconOffset), 0);
+                newData.set(iconOverrideEncoded, iconOffset);
+                newData.set(exportData.subarray(iconOffset + iconSlot.size), iconOffset + iconOverrideEncoded.length);
+                exportData = newData;
+                if (workingLstData) {
+                    const entries = getSceneArchiveEntries(workingLstData);
+                    const matching = entries.find(e => e.offset === iconOffset);
+                    if (matching) setSceneArchiveEntryOffsetSize(workingLstData, matching.index, iconOffset, iconOverrideEncoded.length);
+                    shiftSceneArchiveEntriesAfter(workingLstData, iconOffset + iconSlot.size, delta);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to recompose DAT with overrides:', e);
+            alert('Failed to recompose DAT with title/icon overrides. Exporting current working copy instead.');
+            exportData = workingData;
+        }
+    }
+    const filename = inversionApplied ? 'SCENE03.DAT' : `${stem}_EDITED.DAT`;
+    return { data: exportData, filename };
+}
+
+function downloadData(): void {
+    const built = buildExportDat();
+    if (!built) return;
+    const exportBuffer = new ArrayBuffer(built.data.byteLength);
+    new Uint8Array(exportBuffer).set(built.data);
     const blob = new Blob([exportBuffer], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = inversionApplied ? 'SCENE03.DAT' : `${stem}_EDITED.DAT`;
+    anchor.download = built.filename;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadPackage(): void {
+    const built = buildExportDat();
+    if (!built) return;
+    // Download DAT
+    const exportBuffer = new ArrayBuffer(built.data.byteLength);
+    new Uint8Array(exportBuffer).set(built.data);
+    const blob = new Blob([exportBuffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = built.filename;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Download LST if present
+    if (workingLstData) {
+        setTimeout(() => {
+            const lstBuffer = new ArrayBuffer(workingLstData!.byteLength);
+            new Uint8Array(lstBuffer).set(workingLstData!);
+            const lstBlob = new Blob([lstBuffer], { type: 'application/octet-stream' });
+            const lstUrl = URL.createObjectURL(lstBlob);
+            const lstAnchor = document.createElement('a');
+            lstAnchor.href = lstUrl;
+            if (inversionApplied && /^SCENE03$/i.test(lstSourceFilename.replace(/\.LST$/i, ''))) {
+                lstAnchor.download = 'SCENE03.LST';
+            } else {
+                const lstStem = lstSourceFilename.replace(/\.LST$/i, '');
+                lstAnchor.download = `${lstStem}_EDITED.LST`;
+            }
+            lstAnchor.click();
+            window.setTimeout(() => URL.revokeObjectURL(lstUrl), 1000);
+            setStatus(`Exported ${built.filename} and ${lstAnchor.download}.`);
+        }, 250);
+    } else {
+        setStatus(`Exported ${built.filename}.`);
+    }
 }
 
 function downloadLaneBank(): void {
@@ -2657,6 +2883,8 @@ function resetAll(): void {
     }
     restoreInversionLaneBank();
     inversionApplied = false;
+    titleOverrideEncoded = null;
+    iconOverrideEncoded = null;
     selectedCell = null;
     closePropertiesPopup();
     cellDetails.textContent = 'Select a cell to inspect or edit it.';
@@ -3184,6 +3412,11 @@ sceneImageFitReplaceButton.addEventListener('click', () => {
     pendingSceneImageReplaceAutoFit = true;
     sceneImageFileInput.click();
 });
+sceneImageGenerateButton.addEventListener('click', () => {
+    const slot = selectedSceneImageSlot();
+    if (!slot) return;
+    generateSceneImageFromText(slot);
+});
 sceneImageFileInput.addEventListener('change', async () => {
     const file = sceneImageFileInput.files?.[0];
     const autoFit = pendingSceneImageReplaceAutoFit;
@@ -3193,10 +3426,9 @@ sceneImageFileInput.addEventListener('change', async () => {
     }
     sceneImageFileInput.value = '';
 });
-exportButton.addEventListener('click', downloadData);
+exportPackageButton.addEventListener('click', downloadPackage);
 exportLaneBankButton.addEventListener('click', downloadLaneBank);
 exportObjectBankButton.addEventListener('click', downloadObjectBank);
-exportLstButton.addEventListener('click', downloadLst);
 applyLstButton.addEventListener('click', applyLstStrings);
 resetLstButton.addEventListener('click', resetLstStrings);
 resetLegButton.addEventListener('click', resetCurrentLeg);

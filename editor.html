@@ -61,8 +61,7 @@
             <span id="source-filename">SCENE01.DAT</span>
             <span id="lst-filename" style="color:#8994a5;font:12px ui-monospace,monospace;">SCENE01.LST</span>
             <div class="toolbar-spacer"></div>
-            <button id="export-dat" type="button" disabled title="Export the edited DAT working copy">Export edited DAT</button>
-            <button id="export-lst" type="button" disabled title="Export the edited LST working copy">Export edited LST</button>
+            <button id="export-package" type="button" disabled title="Export edited DAT and LST together">Export scene (DAT+LST)</button>
             <span id="dirty-indicator" class="dirty-indicator" aria-live="polite" hidden>Unsaved changes</span>
         </section>
 
@@ -314,7 +313,7 @@
 
                             <section class="panel">
                                 <h2>Scene UI bitmaps <span class="panel-scope">Course / scene</span></h2>
-                                <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger).</p>
+                                <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Recompressed data must fit the original slot (rejects if larger). For title/icon you can also generate from text (may require Fit to compress).</p>
                                 <label>
                                     Slot
                                     <select id="scene-image-slot"></select>
@@ -323,6 +322,16 @@
                                     <canvas id="scene-image-preview" style="image-rendering:pixelated;max-width:100%;height:auto;"></canvas>
                                 </div>
                                 <p id="scene-image-info" class="subtle">Select a slot to preview it.</p>
+                                <div style="margin:8px 0;padding:8px;border:1px solid #2b3442;border-radius:6px;background:#0f141d;">
+                                    <p class="subtle" style="margin:0 0 6px 0;"><strong>Generate from text (title/icon)</strong></p>
+                                    <label style="display:block;margin-bottom:4px;">Start name
+                                        <input id="scene-gen-start" type="text" placeholder="e.g. Pacific" style="width:100%;margin-top:2px;">
+                                    </label>
+                                    <label style="display:block;margin-bottom:6px;">Destination name
+                                        <input id="scene-gen-dest" type="text" placeholder="e.g. Yosemite" style="width:100%;margin-top:2px;">
+                                    </label>
+                                    <button id="scene-image-generate" type="button" class="secondary" disabled>Generate from text</button>
+                                </div>
                                 <div class="button-row" style="margin-top:8px;">
                                     <button id="scene-image-export" type="button" class="secondary" disabled>Export PNG</button>
                                     <button id="scene-image-replace" type="button" disabled>Replace from image…</button>
