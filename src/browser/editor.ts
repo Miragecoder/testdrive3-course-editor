@@ -741,6 +741,41 @@ function regenerateSharedLandPalette(slot: SceneImageSlot, uploadedRgba: Uint8Cl
     }
 }
 
+async function applySceneImageFromBlob(slot: SceneImageSlot, data: Uint8Array, blob: Blob, autoFit: boolean): Promise<void> {
+    const bitmap = await createImageBitmap(blob);
+    try {
+        const width = slot.width;
+        const height = slot.height ?? Math.floor((decodeSceneImageSlot(data, slot).length) / width);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Could not read uploaded image.');
+        ctx.drawImage(bitmap, 0, 0, width, height);
+        const rgba = ctx.getImageData(0, 0, width, height).data;
+        const palette = sceneImagePaletteForSlot(data, slot);
+        const allowedIndices = sceneImageAllowedIndices(slot);
+
+        const indexed = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+            const dstY = height - 1 - y;
+            for (let x = 0; x < width; x++) {
+                const si = (y * width + x) * 4;
+                indexed[dstY * width + x] = nearestPaletteIndex(rgba[si], rgba[si + 1], rgba[si + 2], palette, allowedIndices);
+            }
+        }
+
+        let encoded = encodeSceneImageSlot(indexed, slot);
+        if (encoded.length > slot.size || autoFit) {
+            const fit = fitIndexedPixelsToSlot(indexed, slot, palette);
+            if (fit) encoded = fit.encoded;
+        }
+        sceneImageOverrides.set(slot.id, encoded);
+    } finally {
+        bitmap.close();
+    }
+}
+
 async function replaceSceneImageFromFile(file: File, autoFit: boolean): Promise<void> {
     const slot = selectedSceneImageSlot();
     if (!slot || !workingData) return;
@@ -3027,7 +3062,7 @@ function restoreInversionLaneBank(): void {
     inversionOriginalLaneBankApproximate = false;
 }
 
-function invertCourse(): void {
+async function invertCourse(): Promise<void> {
     if (!workingData || courseId !== 'SCENE01' || inversionApplied) return;
 
     try {
@@ -3043,13 +3078,35 @@ function invertCourse(): void {
         const invertedData = invertPacificCourse(workingData);
         let swappedLandscapes = false;
         let swapWarning = '';
-        if (swapScene03LandscapesInput.checked) {
-            try {
-                swapScene01LandscapeSetsAandC(invertedData);
-                swappedLandscapes = true;
-            } catch (swapError) {
-                swapWarning = swapError instanceof Error ? swapError.message : 'Could not swap leg 1/5 landscapes.';
-            }
+        const landscapeOverrides: Array<{ id: string; encoded: Uint8Array }> = [];
+        try {
+            const slots = getSceneImageSlots('SCENE01');
+            const slot = (id: string) => {
+                const s = slots.find(x => x.id === id);
+                if (!s) throw new Error(`Missing SCENE01 image slot ${id}`);
+                return s;
+            };
+            const landA = slot('landA'), landB = slot('landB'), landE = slot('landE'), landF = slot('landF');
+            const pixA = decodeSceneImageSlot(invertedData, landA);
+            const pixB = decodeSceneImageSlot(invertedData, landB);
+            const pixE = decodeSceneImageSlot(invertedData, landE);
+            const pixF = decodeSceneImageSlot(invertedData, landF);
+            // Swap palettes in-place (fixed 336-byte landscape palettes).
+            const palAOff = 0x12378, palCOff = 0x257EA, palSize = 336;
+            const palA = invertedData.slice(palAOff, palAOff + palSize);
+            const palC = invertedData.slice(palCOff, palCOff + palSize);
+            invertedData.set(palC, palAOff);
+            invertedData.set(palA, palCOff);
+            // Store as overrides so export can recompose slots that change size.
+            landscapeOverrides.push(
+                { id: 'landA', encoded: encodeSceneImageSlot(pixE, landA) },
+                { id: 'landB', encoded: encodeSceneImageSlot(pixF, landB) },
+                { id: 'landE', encoded: encodeSceneImageSlot(pixA, landE) },
+                { id: 'landF', encoded: encodeSceneImageSlot(pixB, landF) },
+            );
+            swappedLandscapes = true;
+        } catch (swapError) {
+            swapWarning = swapError instanceof Error ? swapError.message : 'Could not swap leg 1/5 landscapes.';
         }
         inversionOriginalLaneBank = laneBank;
         inversionOriginalLaneBankSource = laneBankSource;
@@ -3068,7 +3125,11 @@ function invertCourse(): void {
             renderLstEditor();
         }
         workingData = sceneDat;
+        const routeWarnings = regenerateAllOpponentRoutes(workingData, 'SCENE01', scene03LaneBank);
         sceneImageOverrides.clear();
+        for (const override of landscapeOverrides) {
+            sceneImageOverrides.set(override.id, override.encoded);
+        }
         inversionApplied = true;
         selectedCell = null;
         selectedEntitySlot = null;
@@ -3076,11 +3137,37 @@ function invertCourse(): void {
         paletteTileId = null;
         legSelect.value = '0';
         cellDetails.textContent = 'Select a cell to inspect the reversed course.';
+        try {
+            const slots = getSceneImageSlots('SCENE01');
+            const titleSlot = slots.find(s => s.id === 'title');
+            const iconSlot = slots.find(s => s.id === 'icon');
+            const [titleRes, iconRes] = await Promise.all([
+                fetch(new URL('../../images/SCENE03/yosemite-pacific-title.png', import.meta.url).href),
+                fetch(new URL('../../images/SCENE03/yosemite-pacific.icon.png', import.meta.url).href),
+            ]);
+            if (titleSlot && titleRes.ok) {
+                await applySceneImageFromBlob(titleSlot, workingData, await titleRes.blob(), true);
+            } else if (titleSlot) {
+                routeWarnings.push('Could not load SCENE03 title image.');
+            }
+            if (iconSlot && iconRes.ok) {
+                await applySceneImageFromBlob(iconSlot, workingData, await iconRes.blob(), true);
+            } else if (iconSlot) {
+                routeWarnings.push('Could not load SCENE03 icon image.');
+            }
+        } catch (imageError) {
+            routeWarnings.push(`Could not apply SCENE03 title/icon: ${imageError instanceof Error ? imageError.message : 'unknown error'}.`);
+        }
+
         refreshTilePreviews();
+        refreshSceneImageUI();
         updateStatusContext();
         const swapNote = swappedLandscapes ? ' landscapes/palettes swapped (leg 1↔5, set A↔C);' : '';
         const warningNote = swapWarning ? ` Landscape swap skipped: ${swapWarning}` : '';
-        setStatus(`SCENE03 experiment ready ·${swapNote} using SCENE01 shared lane bank (un-reversed, no mirroring), LST set to private O/P banks (0x57=0), and SCENE03O.BIN/SCENE03P.BIN embedded into SCENE03.DAT. Export SCENE03.DAT and SCENE03.LST (O/P BIN exports are optional). Routes still need validation.${warningNote}`, Boolean(swapWarning));
+        const routeNote = routeWarnings.length > 0
+            ? ` AI opponent routes regenerated with warnings: ${routeWarnings.join(' ')}`
+            : ' AI opponent branch route scripts regenerated for all legs.';
+        setStatus(`SCENE03 experiment ready ·${swapNote}${routeNote} using SCENE01 shared lane bank (un-reversed, no mirroring), LST route names swapped (map 1↔5, 2↔4), LST set to private O/P banks (0x57=0), and SCENE03O.BIN/SCENE03P.BIN embedded into SCENE03.DAT. Export SCENE03.DAT and SCENE03.LST (O/P BIN exports are optional).${warningNote}`, Boolean(swapWarning || routeWarnings.length > 0));
     } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Could not invert the Pacific course.', true);
     }
@@ -3615,6 +3702,97 @@ const editorReady = (async () => {
 editorReady.catch((error: unknown) => {
     setStatus(error instanceof Error ? error.message : 'Could not initialize the editor.', true);
 });
+
+function regenerateAllOpponentRoutes(data: Uint8Array, courseIdForTiles: CourseId, laneBankData: readonly { tileId: number; waypoints: readonly unknown[] }[]): string[] {
+    const layout = COURSE_LAYOUTS[courseIdForTiles];
+    const sharedTileData = files.datab;
+    const sceneTileData = courseIdForTiles === 'SCENE01' ? files.scene01 : files.scene02;
+    const warnings: string[] = [];
+    if (!sharedTileData || !sceneTileData) {
+        return ['Tile geometry unavailable; skipped AI opponent route regeneration.'];
+    }
+
+    for (let legIndex = 0; legIndex < layout.mapOffsets.length; legIndex++) {
+        const mapOffset = layout.mapOffsets[legIndex];
+        const finishTileId = findMapTileWithFaceMaterial(
+            data, mapOffset, sharedTileData, sceneTileData, courseIdForTiles, FINISH_FACE_MATERIAL,
+        );
+        if (finishTileId === null) {
+            warnings.push(`Leg ${legIndex + 1}: no finish tile found, skipped.`);
+            continue;
+        }
+
+        const entityTable = readMapEntityTable(data, mapOffset);
+        const opponents = entityTable.entities.filter((entity) => entity.modelId === 0x02 || entity.modelId === 0x03)
+            .sort((a, b) => a.modelId - b.modelId);
+        if (opponents.length < 2) {
+            warnings.push(`Leg ${legIndex + 1}: missing opponent entities, skipped.`);
+            continue;
+        }
+
+        const probed = opponents.map((entity) => {
+            const startX = entity.cell & 0x1F;
+            const startY = (entity.cell >> 5) & 0x0F;
+            const startCell = readMapCell(data, mapOffset, startX, startY);
+            const startLane = laneBankData.find((l) => l.tileId === startCell.tileId);
+            const currentWp = entity.waypoint & 0x3F;
+            const wpCandidates = new Set<number>([currentWp]);
+            if (startLane) {
+                for (let i = 0; i < startLane.waypoints.length; i++) wpCandidates.add(i);
+            }
+            let bestWp = currentWp;
+            let bestPaths: ReturnType<typeof probeOpponentPaths> = [];
+            let bestScore = Number.POSITIVE_INFINITY;
+            for (const wp of wpCandidates) {
+                const paths = probeOpponentPaths(data, mapOffset, laneBankData as any, entity, finishTileId, { maxResults: 12, startWaypointIndex: wp });
+                const top = paths[0];
+                if (top) {
+                    const score = top.steps * 100000 + top.scriptControlPoints * 1000 + top.branchModes.length;
+                    if (score < bestScore) { bestScore = score; bestWp = wp; bestPaths = paths; }
+                } else if (bestPaths.length === 0 && wp === currentWp) {
+                    bestPaths = paths;
+                }
+            }
+            return { entity, paths: bestPaths, chosenWaypointIndex: bestWp };
+        });
+
+        if (probed.some((entry) => entry.paths.length === 0)) {
+            warnings.push(`Leg ${legIndex + 1}: no valid no-U-turn path for one or more opponents, skipped.`);
+            continue;
+        }
+
+        const aPaths = probed[0].paths;
+        const bPaths = probed[1].paths;
+        let chosen: [ProbedPath, ProbedPath] | null = null;
+        for (const a of aPaths) {
+            const b = bPaths.find((candidate) => candidate.signature !== a.signature && pathsDivergeAndReconverge(a.pathCells, candidate.pathCells));
+            if (b) { chosen = [a, b]; break; }
+        }
+        if (!chosen) {
+            for (const a of aPaths) {
+                const b = bPaths.find((candidate) => candidate.signature !== a.signature);
+                if (b) { chosen = [a, b]; break; }
+            }
+        }
+        if (!chosen) chosen = [aPaths[0], bPaths[0]];
+
+        for (let i = 0; i < probed.length; i++) {
+            const p = probed[i];
+            const newWp = (p.entity.waypoint & ~0x3F) | (p.chosenWaypointIndex & 0x3F);
+            writeMapEntity(data, mapOffset, p.entity.slot, {
+                flags: p.entity.flags, x: p.entity.x, z: p.entity.z, y: p.entity.y,
+                heading: p.entity.heading, velocity: p.entity.velocity, cell: p.entity.cell, waypoint: newWp,
+            });
+            writeOpponentRouteScript(data, mapOffset, (p.entity.modelId - 2) as 0 | 1, {
+                initialMode: chosen[i].initialMode,
+                branchModes: [...chosen[i].branchModes],
+                terminates: false,
+            });
+        }
+    }
+
+    return warnings;
+}
 
 function probeAiPaths(): void {
     probeResults.classList.remove('subtle');

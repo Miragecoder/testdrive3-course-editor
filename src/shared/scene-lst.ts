@@ -269,6 +269,25 @@ function buildScene01NameLookup(): Map<string, string> {
     return lookup;
 }
 
+export function swapScene03RouteNames(data: Uint8Array): void {
+    if (data.length !== SCENE_LST_SIZE) {
+        throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
+    }
+    // SCENE03 inverts leg order (5->1,4->2,3->3,2->4,1->5), so swap route-name
+    // blocks for map 1 <-> 5 and map 2 <-> 4 (4 names per leg, 12 bytes each).
+    const swapBlocks = (legA: number, legB: number): void => {
+        const aOffset = ROUTE_NAMES_OFFSET + legA * 4 * ROUTE_NAME_SIZE;
+        const bOffset = ROUTE_NAMES_OFFSET + legB * 4 * ROUTE_NAME_SIZE;
+        const blockSize = 4 * ROUTE_NAME_SIZE;
+        const a = data.slice(aOffset, aOffset + blockSize);
+        const b = data.slice(bOffset, bOffset + blockSize);
+        data.set(b, aOffset);
+        data.set(a, bOffset);
+    };
+    swapBlocks(0, 4);
+    swapBlocks(1, 3);
+}
+
 export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array {
     if (scene01Lst.length !== SCENE_LST_SIZE) {
         throw new Error(`Expected a ${SCENE_LST_SIZE}-byte scene LST file.`);
@@ -277,6 +296,7 @@ export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array 
     // Generated SCENE03 experiment ships private O/P lane/object banks (SCENE03O.BIN, SCENE03P.BIN).
     // Mark the scene as owning its O/P sets so the engine loads them instead of shared banks.
     out[0x57] = 0x00;
+    writeCourseName(out, 'Yosemite - Pacific');
     const nameLookup = buildScene01NameLookup();
     for (let index = 0; index < SCENE_ARCHIVE_ENTRY_COUNT; index++) {
         const entryOffset = SCENE_ARCHIVE_OFFSET + index * SCENE_ARCHIVE_ENTRY_SIZE;
@@ -290,5 +310,6 @@ export function createScene03LstFromScene01(scene01Lst: Uint8Array): Uint8Array 
         writeWord(out, entryOffset, nh[0]);
         writeWord(out, entryOffset + 2, nh[1]);
     }
+    swapScene03RouteNames(out);
     return out;
 }
