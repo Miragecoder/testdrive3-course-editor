@@ -83,10 +83,20 @@ import {
 import {
     applyPaletteLayer,
     applyPixelBase,
+    buildPalette,
     createDefaultPalette,
     decodeTd3Image,
 } from '@shared/td3-image';
 import { lzwDecode } from '@shared/lzw';
+import {
+    extractSceneSprites,
+    getSceneSpriteSourceInfo,
+    renderSceneSpritePng,
+    replaceSceneSpriteSourcePixels,
+    sceneSpriteBanks,
+    type SceneSprite,
+    type SceneSpriteBankSpec,
+} from '@shared/scene-sprites';
 
 const courseSelect = requiredElement<HTMLSelectElement>('course-select');
 const legSelect = requiredElement<HTMLSelectElement>('leg-select');
@@ -164,6 +174,15 @@ const sceneImageFeedback = requiredElement<HTMLParagraphElement>('scene-image-fe
 const sceneGenStartInput = requiredElement<HTMLInputElement>('scene-gen-start');
 const sceneGenDestInput = requiredElement<HTMLInputElement>('scene-gen-dest');
 const sceneImageGenerateButton = requiredElement<HTMLButtonElement>('scene-image-generate');
+const sceneSpriteModeSelect = requiredElement<HTMLSelectElement>('scene-sprite-mode');
+const sceneSpriteSelect = requiredElement<HTMLSelectElement>('scene-sprite-select');
+const sceneSpritePreview = requiredElement<HTMLCanvasElement>('scene-sprite-preview');
+const sceneSpriteInfo = requiredElement<HTMLParagraphElement>('scene-sprite-info');
+const sceneSpriteExportButton = requiredElement<HTMLButtonElement>('scene-sprite-export');
+const sceneSpriteReplaceButton = requiredElement<HTMLButtonElement>('scene-sprite-replace');
+const sceneSpriteFileInput = requiredElement<HTMLInputElement>('scene-sprite-file');
+const sceneSpriteFeedback = requiredElement<HTMLParagraphElement>('scene-sprite-feedback');
+const sceneSpriteLog = requiredElement<HTMLPreElement>('scene-sprite-log');
 const paletteBankSelect = requiredElement<HTMLSelectElement>('palette-bank');
 const tilePalette = requiredElement<HTMLDivElement>('tile-palette');
 const clusterSelect = requiredElement<HTMLSelectElement>('cluster-select');
@@ -230,6 +249,9 @@ let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
 let pendingSceneImageReplaceAutoFit = false;
 const sceneImageOverrides = new Map<string, Uint8Array>();
+let sceneSprites: SceneSprite[] = [];
+let sceneSpritesBankId: string | null = null;
+let sceneSpritesMode: 'raw' | 'alias' = 'raw';
 
 interface TileClusterCell {
     readonly dx: number;
@@ -386,6 +408,258 @@ function medianCutPalette(rgbaPixels: Uint8ClampedArray, width: number, height: 
         out[i * 3 + 2] = Math.max(0, Math.min(63, Math.round(b / 4)));
     }
     return out;
+}
+
+function getSceneSpriteBankForCurrentCourse(): SceneSpriteBankSpec | null {
+    const id = getSceneImageCourseId();
+    if (!id) return null;
+    return sceneSpriteBanks.find(b => b.id === id) ?? null;
+}
+
+function sceneSpritePalette(bank: SceneSpriteBankSpec): number[] {
+    if (bank.paletteLayers && bank.paletteLayers.length > 0) {
+        const fileData = new Map<string, Uint8Array>();
+        for (const layer of bank.paletteLayers) {
+            if (layer.datFile === 'DATAC.DAT' && files.datac) fileData.set('DATAC.DAT', files.datac);
+            if (layer.datFile === 'SCENE01.DAT' && files.scene01) fileData.set('SCENE01.DAT', files.scene01);
+            if (layer.datFile === 'SCENE02.DAT' && files.scene02) fileData.set('SCENE02.DAT', files.scene02);
+            if (layer.datFile === 'DATAB.DAT' && files.datab) fileData.set('DATAB.DAT', files.datab);
+        }
+        if (bank.paletteLayers.every(l => fileData.has(l.datFile))) {
+            return buildPalette(fileData, bank.paletteLayers);
+        }
+    }
+    return createDefaultPalette();
+}
+
+function ensureSceneSpritesLoaded(): SceneSprite[] {
+    const bank = getSceneSpriteBankForCurrentCourse();
+    if (!bank || !workingData) {
+        sceneSprites = [];
+        sceneSpritesBankId = null;
+        sceneSpriteLog.textContent = 'No sprite bank loaded.';
+        return sceneSprites;
+    }
+    const mode = (sceneSpriteModeSelect.value === 'alias' ? 'alias' : 'raw') as 'raw' | 'alias';
+    if (sceneSpritesBankId === bank.id && sceneSpritesMode === mode && sceneSprites.length > 0) {
+        return sceneSprites;
+    }
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+        const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+        if (msg.includes('[spriteextract]')) warnings.push(msg);
+        originalWarn(...args);
+    };
+    try {
+        sceneSprites = extractSceneSprites(bank, workingData, { mode2: mode });
+        sceneSpritesBankId = bank.id;
+        sceneSpritesMode = mode;
+    } finally {
+        console.warn = originalWarn;
+    }
+    const header = `${bank.id}: extracted ${sceneSprites.length} unique sprites from ${bank.datFile} @ 0x${bank.offset.toString(16)} (${bank.size} bytes) · mode2=${mode}`;
+    const body = warnings.length > 0 ? warnings.join('\n') : 'No warnings.';
+    sceneSpriteLog.textContent = `${header}\n${body}`;
+    return sceneSprites;
+}
+
+function renderSelectedSceneSprite(): void {
+    sceneSpriteFeedback.textContent = '';
+    sceneSpriteFeedback.classList.remove('error');
+    const bank = getSceneSpriteBankForCurrentCourse();
+    if (!bank || !workingData) {
+        sceneSpriteInfo.textContent = 'Open a SCENE01/SCENE02 course DAT file to view sprites.';
+        sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+        sceneSpritePreview.style.width = '';
+        sceneSpritePreview.style.height = '';
+        const ctx = sceneSpritePreview.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, sceneSpritePreview.width, sceneSpritePreview.height);
+        return;
+    }
+    const sprites = ensureSceneSpritesLoaded();
+    const selectedOffset = Number(sceneSpriteSelect.value);
+    const sprite = sprites.find(s => s.recordOffset === selectedOffset) ?? sprites[0];
+    if (!sprite) {
+        sceneSpriteInfo.textContent = 'No sprites decoded from this bank.';
+        sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+        return;
+    }
+    try {
+        const palette = sceneSpritePalette(bank);
+        const { width, height, indexedPixels } = sprite;
+        sceneSpritePreview.width = width;
+        sceneSpritePreview.height = height;
+        const scale = Math.max(1, Math.min(24, Math.floor(192 / Math.max(width, height))));
+        sceneSpritePreview.style.width = `${width * scale}px`;
+        sceneSpritePreview.style.height = `${height * scale}px`;
+        const ctx = sceneSpritePreview.getContext('2d');
+        if (!ctx) throw new Error('Could not create canvas context for sprite preview.');
+        const imageData = ctx.createImageData(width, height);
+        for (let i = 0; i < indexedPixels.length; i++) {
+            const idx = indexedPixels[i] ?? 0;
+            const p = idx * 3;
+            const di = i * 4;
+            imageData.data[di + 0] = palette[p] ?? 0;
+            imageData.data[di + 1] = palette[p + 1] ?? 0;
+            imageData.data[di + 2] = palette[p + 2] ?? 0;
+            imageData.data[di + 3] = idx === 0 ? 0 : 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        const refs = sprite.references.map(r => `r${String(r.rootIndex).padStart(2, '0')}v${String(r.variantIndex).padStart(2, '0')}`).join(', ');
+        sceneSpriteInfo.textContent = `${bank.id} · 0x${sprite.recordOffset.toString(16)} · ${width}×${height} · ${sprite.sourceRowCount} src rows · refs: ${refs}`;
+        sceneSpriteExportButton.disabled = false;
+        sceneSpriteReplaceButton.disabled = false;
+    } catch (error) {
+        sceneSpriteInfo.textContent = 'Could not render this sprite.';
+        sceneSpriteFeedback.textContent = error instanceof Error ? error.message : 'Render failed.';
+        sceneSpriteFeedback.classList.add('error');
+        sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+    }
+}
+
+function refreshSceneSpriteUI(): void {
+    const bank = getSceneSpriteBankForCurrentCourse();
+    sceneSpriteSelect.replaceChildren();
+    sceneSpriteFeedback.textContent = '';
+    sceneSpriteFeedback.classList.remove('error');
+    sceneSprites = [];
+    sceneSpritesBankId = null;
+
+    if (!bank || !workingData) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = bank ? 'No data loaded' : 'Not available for this course';
+        sceneSpriteSelect.append(opt);
+        sceneSpriteSelect.disabled = true;
+        sceneSpriteInfo.textContent = !bank ? 'Scene sprite banks are defined for SCENE01/SCENE02.' : 'Open a course DAT file first.';
+        sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+        sceneSpritePreview.style.width = '';
+        sceneSpritePreview.style.height = '';
+        const ctx = sceneSpritePreview.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, sceneSpritePreview.width, sceneSpritePreview.height);
+        return;
+    }
+
+    try {
+        const sprites = ensureSceneSpritesLoaded();
+        sceneSpriteSelect.disabled = false;
+        for (const sprite of sprites) {
+            const opt = document.createElement('option');
+            opt.value = String(sprite.recordOffset);
+            const first = sprite.references[0];
+            const refLabel = first ? `r${String(first.rootIndex).padStart(2, '0')}v${String(first.variantIndex).padStart(2, '0')}` : 'ref?';
+            opt.textContent = `0x${sprite.recordOffset.toString(16)} · ${refLabel} · ${sprite.width}×${sprite.height}`;
+            sceneSpriteSelect.append(opt);
+        }
+        if (sprites.length > 0) {
+            sceneSpriteSelect.value = String(sprites[0].recordOffset);
+            renderSelectedSceneSprite();
+        } else {
+            sceneSpriteInfo.textContent = 'No sprites decoded from this bank.';
+            sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+        }
+    } catch (error) {
+        sceneSpriteSelect.disabled = true;
+        sceneSpriteInfo.textContent = 'Could not decode sprite bank.';
+        sceneSpriteFeedback.textContent = error instanceof Error ? error.message : 'Decode failed.';
+        sceneSpriteFeedback.classList.add('error');
+        sceneSpriteExportButton.disabled = true;
+        sceneSpriteReplaceButton.disabled = true;
+    }
+}
+
+async function replaceSelectedSceneSpriteFromFile(file: File): Promise<void> {
+    const bank = getSceneSpriteBankForCurrentCourse();
+    if (!bank || !workingData) return;
+    sceneSpriteFeedback.textContent = '';
+    sceneSpriteFeedback.classList.remove('error');
+    const sprites = ensureSceneSpritesLoaded();
+    const selectedOffset = Number(sceneSpriteSelect.value);
+    const sprite = sprites.find(s => s.recordOffset === selectedOffset);
+    if (!sprite) return;
+    const spriteId = sprite.references[0]?.rootIndex;
+    if (spriteId === undefined) return;
+    try {
+        const url = URL.createObjectURL(file);
+        try {
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error('Could not load image.'));
+                image.src = url;
+            });
+            if (img.width !== sprite.width || img.height !== sprite.height) {
+                throw new Error(`Image must be ${sprite.width}x${sprite.height} (got ${img.width}x${img.height}).`);
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = sprite.width;
+            canvas.height = sprite.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Could not create canvas context.');
+            ctx.clearRect(0, 0, sprite.width, sprite.height);
+            ctx.drawImage(img, 0, 0);
+            const rgba = ctx.getImageData(0, 0, sprite.width, sprite.height).data;
+            const palette = sceneSpritePalette(bank);
+            const indexed = new Uint8Array(sprite.width * sprite.height);
+            for (let i = 0; i < indexed.length; i++) {
+                const si = i * 4;
+                const a = rgba[si + 3] ?? 255;
+                if (a < 128) {
+                    indexed[i] = 0;
+                    continue;
+                }
+                indexed[i] = nearestPaletteIndex(rgba[si], rgba[si + 1], rgba[si + 2], palette, null);
+            }
+            const result = replaceSceneSpriteSourcePixels(bank, workingData, spriteId, indexed, sprite.width, sprite.height);
+            if (!result.ok) throw new Error(result.reason);
+            sceneSprites = [];
+            sceneSpritesBankId = null;
+            refreshSceneSpriteUI();
+            sceneSpriteSelect.value = String(sprite.recordOffset);
+            renderSelectedSceneSprite();
+            updateStatus();
+            sceneSpriteFeedback.textContent = `Replaced sprite r${String(spriteId).padStart(2, '0')} (${sprite.width}x${sprite.height}, ${result.bytesWritten} bytes). Export DAT to apply.`;
+            sceneSpriteFeedback.classList.remove('error');
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    } catch (error) {
+        sceneSpriteFeedback.textContent = error instanceof Error ? error.message : 'Could not replace sprite.';
+        sceneSpriteFeedback.classList.add('error');
+    }
+}
+
+function exportSceneSpritePng(): void {
+    const bank = getSceneSpriteBankForCurrentCourse();
+    if (!bank || !workingData) return;
+    const sprites = ensureSceneSpritesLoaded();
+    const selectedOffset = Number(sceneSpriteSelect.value);
+    const sprite = sprites.find(s => s.recordOffset === selectedOffset);
+    if (!sprite) return;
+    try {
+        const palette = sceneSpritePalette(bank);
+        const png = renderSceneSpritePng(sprite, palette);
+        const blob = new Blob([png], { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        const first = sprite.references[0];
+        const refLabel = first ? `r${String(first.rootIndex).padStart(2, '0')}_v${String(first.variantIndex).padStart(2, '0')}` : 'sprite';
+        anchor.href = url;
+        anchor.download = `${bank.id}_${refLabel}_0x${sprite.recordOffset.toString(16)}_${sprite.width}x${sprite.height}.png`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+        sceneSpriteFeedback.textContent = `Exported ${anchor.download}.`;
+        sceneSpriteFeedback.classList.remove('error');
+    } catch (error) {
+        sceneSpriteFeedback.textContent = error instanceof Error ? error.message : 'Could not export sprite.';
+        sceneSpriteFeedback.classList.add('error');
+    }
 }
 
 function writeScenePalette(dat: Uint8Array, paletteOffset: number, vga6Palette: Uint8Array): void {
@@ -1357,6 +1631,7 @@ function refreshTilePreviews(): void {
     renderTilePalette();
     renderGrid();
     refreshSceneImageUI();
+    refreshSceneSpriteUI();
 }
 
 function setClusterFeedback(message: string, tone: 'ok' | 'warn' | 'error' | '' = ''): void {
@@ -3209,6 +3484,7 @@ async function invertCourse(): Promise<void> {
 
         refreshTilePreviews();
         refreshSceneImageUI();
+        refreshSceneSpriteUI();
         updateStatusContext();
         const swapNote = swappedLandscapes ? ' landscapes/palettes swapped (leg 1↔5, set A↔C);' : '';
         const warningNote = swapWarning ? ` Landscape swap skipped: ${swapWarning}` : '';
@@ -3684,6 +3960,23 @@ sceneImageFileInput.addEventListener('change', async () => {
         await replaceSceneImageFromFile(file, autoFit);
     }
     sceneImageFileInput.value = '';
+});
+sceneSpriteModeSelect.addEventListener('change', () => {
+    refreshSceneSpriteUI();
+});
+sceneSpriteSelect.addEventListener('change', () => {
+    renderSelectedSceneSprite();
+});
+sceneSpriteExportButton.addEventListener('click', exportSceneSpritePng);
+sceneSpriteReplaceButton.addEventListener('click', () => {
+    sceneSpriteFileInput.click();
+});
+sceneSpriteFileInput.addEventListener('change', async () => {
+    const file = sceneSpriteFileInput.files?.[0];
+    if (file) {
+        await replaceSelectedSceneSpriteFromFile(file);
+    }
+    sceneSpriteFileInput.value = '';
 });
 exportPackageButton.addEventListener('click', downloadPackage);
 exportLaneBankButton.addEventListener('click', downloadLaneBank);

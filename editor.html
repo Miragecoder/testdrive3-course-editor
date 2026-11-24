@@ -342,6 +342,36 @@
                             </section>
 
                             <section class="panel">
+                                <h2>Scene sprites <span class="panel-scope">Course / scene</span></h2>
+                                <p class="subtle">View/export 2D billboard sprites from the scene sprite/render-descriptor bank (trees, roadside objects, etc.). Read-only for now; sprite bank editing is not supported yet.</p>
+                                <label>
+                                    Mode
+                                    <select id="scene-sprite-mode">
+                                        <option value="raw">Raw decoded (explore)</option>
+                                        <option value="alias">Engine aliases (accurate)</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    Sprite
+                                    <select id="scene-sprite-select"></select>
+                                </label>
+                                <div id="scene-sprite-preview-wrap" style="margin:8px 0;min-height:40px;background:#0b0f16;border:1px solid #394150;border-radius:7px;padding:6px;display:flex;align-items:center;justify-content:center;overflow:auto;">
+                                    <canvas id="scene-sprite-preview" style="image-rendering:pixelated;max-width:100%;height:auto;"></canvas>
+                                </div>
+                                <p id="scene-sprite-info" class="subtle">Select a sprite to preview it.</p>
+                                <div class="button-row" style="margin-top:8px;">
+                                    <button id="scene-sprite-export" type="button" class="secondary" disabled>Export PNG</button>
+                                    <button id="scene-sprite-replace" type="button" disabled>Replace from image…</button>
+                                    <input id="scene-sprite-file" type="file" accept="image/png,image/*" hidden>
+                                </div>
+                                <p id="scene-sprite-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                                <details style="margin-top:8px;">
+                                    <summary style="cursor:pointer;color:#aeb8c7;font-size:11px;text-transform:uppercase;letter-spacing:.07em;">Extraction log</summary>
+                                    <pre id="scene-sprite-log" style="margin-top:8px;max-height:180px;overflow:auto;padding:8px;background:#0b0f16;border:1px solid #394150;border-radius:7px;font:11px ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;color:#c8d1dc;">No extraction log yet.</pre>
+                                </details>
+                            </section>
+
+                            <section class="panel">
                                 <h2>Scene strings (LST) <span class="panel-scope">Course / scene</span></h2>
                                 <p class="subtle">Edits the string values in the scene's .LST file. Route names are 36 fixed 12-character slots (space-padded). UI strings are stored in a fixed 250-byte region.</p>
                                 <label>

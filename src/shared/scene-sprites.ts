@@ -39,9 +39,11 @@ interface BuilderState {
 
 const ROOT_COUNT = 0x20;
 const FANOUT = 0x16;
-// The traced builder logic still needs more headroom than the documented runtime arena.
-// Use a full 16-bit offline workspace so the extracted sprite records remain readable.
-const EXPANDED_BANK_SIZE = 0x10000;
+// Internal extraction workspace. Original format uses 16-bit pointers (64k limit),
+// but for extraction we use 32-bit pointers to avoid overflow on complex banks.
+const PTR_SIZE = 4;
+const ROOT_TABLE_SIZE = ROOT_COUNT * PTR_SIZE;
+const EXPANDED_BANK_SIZE = 0x40000;
 
 const WORK_OFFSET_2A9F4 = 0x1B;
 const WORK_OFFSET_2A9F5 = 0x1C;
@@ -146,6 +148,23 @@ function writeWord(buffer: Uint8Array, offset: number, value: number): void {
     }
     buffer[offset] = value & 0xFF;
     buffer[offset + 1] = (value >> 8) & 0xFF;
+}
+
+function readPtr32(buffer: Uint8Array, offset: number): number {
+    if (offset < 0 || offset + 3 >= buffer.length) {
+        throw new Error(`Ptr read out of range at 0x${offset.toString(16)}`);
+    }
+    return (buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24)) >>> 0;
+}
+
+function writePtr32(buffer: Uint8Array, offset: number, value: number): void {
+    if (offset < 0 || offset + 3 >= buffer.length) {
+        throw new Error(`Ptr write out of range at 0x${offset.toString(16)}`);
+    }
+    buffer[offset] = value & 0xFF;
+    buffer[offset + 1] = (value >>> 8) & 0xFF;
+    buffer[offset + 2] = (value >>> 16) & 0xFF;
+    buffer[offset + 3] = (value >>> 24) & 0xFF;
 }
 
 function rotateLeft(byte: number): [number, number] {
@@ -434,10 +453,15 @@ function buildLeafRecord(source: Uint8Array, output: Uint8Array, state: BuilderS
     }
 }
 
-function buildExpandedBank(source: Uint8Array): Uint8Array {
+export interface SceneSpriteExtractOptions {
+    mode2?: 'raw' | 'alias';
+}
+
+function buildExpandedBank(source: Uint8Array, options?: SceneSpriteExtractOptions): Uint8Array {
+    const mode2 = options?.mode2 ?? 'raw';
     const output = new Uint8Array(EXPANDED_BANK_SIZE);
     const state: BuilderState = {
-        di: 0x40,
+        di: ROOT_TABLE_SIZE,
         byte2A9C0: 0,
         byte2A9C1: 0,
         byte2A9C2: 0,
@@ -449,7 +473,7 @@ function buildExpandedBank(source: Uint8Array): Uint8Array {
     };
 
     for (let rootIndex = 0; rootIndex < ROOT_COUNT; rootIndex++) {
-        writeWord(output, rootIndex * 2, state.di);
+        writePtr32(output, rootIndex * PTR_SIZE, state.di);
         if (rootIndex === 0) {
             continue;
         }
@@ -457,17 +481,13 @@ function buildExpandedBank(source: Uint8Array): Uint8Array {
         state.byte2A9C2 = rootIndex;
         const rootType = ROOT_FLAGS[rootIndex] & 0x07;
 
-        if (rootType !== 0) {
-            if (rootType >= 2) {
-                continue;
-            }
-
+        if (rootType === 1) {
             const tableOffset = state.di;
-            state.di += FANOUT * 2;
+            state.di += FANOUT * PTR_SIZE;
             state.byte2A9C1 = 0;
             state.byte2A9C0 = 0x17;
             for (let variantIndex = 0; variantIndex < FANOUT; variantIndex++) {
-                writeWord(output, tableOffset + variantIndex * 2, state.di);
+                writePtr32(output, tableOffset + variantIndex * PTR_SIZE, state.di);
             }
             buildLeafRecord(source, output, state);
             if (state.word2A9CD + 1 >= output.length) {
@@ -476,12 +496,33 @@ function buildExpandedBank(source: Uint8Array): Uint8Array {
             continue;
         }
 
+        if (rootType >= 2) {
+            if (mode2 === 'alias') {
+                // mode 2: reuse id-1's copies, mode 3+: reuse id-2's copies (per enhanced sprite_draw).
+                const aliasRoot = rootType === 2 ? rootIndex - 1 : rootIndex - 2;
+                const tableOffset = state.di;
+                state.di += FANOUT * PTR_SIZE;
+                const aliasTable = aliasRoot >= 0 ? readPtr32(output, aliasRoot * PTR_SIZE) : 0;
+                for (let variantIndex = 0; variantIndex < FANOUT; variantIndex++) {
+                    const src = aliasTable > 0 ? readPtr32(output, aliasTable + variantIndex * PTR_SIZE) : 0;
+                    writePtr32(output, tableOffset + variantIndex * PTR_SIZE, src);
+                }
+                continue;
+            }
+            if (rootType >= 3) {
+                continue;
+            }
+            // mode2 === 'raw': fall through and build per-variant for exploration/debugging.
+        }
+
+        // rootType 0 (and mode2 raw type 2): build per-variant records.
         const tableOffset = state.di;
-        state.di += FANOUT * 2;
+        state.di += FANOUT * PTR_SIZE;
         let previousHeader = 0xFFFF;
         for (let variantIndex = 0; variantIndex < FANOUT; variantIndex++) {
-            const pointerOffset = tableOffset + variantIndex * 2;
-            writeWord(output, pointerOffset, state.di);
+            const pointerOffset = tableOffset + variantIndex * PTR_SIZE;
+            const savedDi = state.di;
+            writePtr32(output, pointerOffset, state.di);
             state.byte2A9C0 = CHILD_STATES[variantIndex];
             state.byte2A9C1 = 0;
             buildLeafRecord(source, output, state);
@@ -491,7 +532,8 @@ function buildExpandedBank(source: Uint8Array): Uint8Array {
 
             const currentHeader = readWord(output, state.word2A9CD);
             if (currentHeader === previousHeader) {
-                writeWord(output, pointerOffset, readWord(output, pointerOffset - 2));
+                writePtr32(output, pointerOffset, readPtr32(output, pointerOffset - PTR_SIZE));
+                state.di = savedDi;
             } else {
                 previousHeader = currentHeader;
             }
@@ -503,6 +545,7 @@ function buildExpandedBank(source: Uint8Array): Uint8Array {
 
 function expandSpriteRecord(expandedBank: Uint8Array, recordOffset: number): Pick<SceneSprite, 'width' | 'height' | 'sourceRowCount' | 'rowRuns' | 'indexedPixels'> | null {
     if (recordOffset < 0 || recordOffset + 3 >= expandedBank.length) {
+        console.warn('[spriteextract] record out of bounds', recordOffset.toString(16));
         return null;
     }
 
@@ -511,6 +554,7 @@ function expandSpriteRecord(expandedBank: Uint8Array, recordOffset: number): Pic
     const height = expandedBank[recordOffset + 2];
 
     if (sourceRowCount === 0 || width === 0 || height === 0) {
+        console.warn('[spriteextract] empty record', recordOffset.toString(16), { sourceRowCount, width, height });
         return null;
     }
 
@@ -520,12 +564,14 @@ function expandSpriteRecord(expandedBank: Uint8Array, recordOffset: number): Pic
     const pixelEnd = pixelOffset + pixelDataLength;
 
     if (pixelEnd > expandedBank.length) {
+        console.warn('[spriteextract] pixel data out of bounds', recordOffset.toString(16), { pixelEnd, bank: expandedBank.length });
         return null;
     }
 
     const rowRuns = Array.from(expandedBank.slice(rowRunOffset, rowRunOffset + sourceRowCount));
     const expandedHeight = rowRuns.reduce((sum, value) => sum + value, 0);
     if (expandedHeight !== height) {
+        console.warn('[spriteextract] row-run height mismatch', recordOffset.toString(16), { expandedHeight, height, width, sourceRowCount });
         return null;
     }
 
@@ -550,21 +596,22 @@ function expandSpriteRecord(expandedBank: Uint8Array, recordOffset: number): Pic
     };
 }
 
-export function extractSceneSprites(bank: SceneSpriteBankSpec, fileData: Uint8Array): SceneSprite[] {
+export function extractSceneSprites(
+    bank: SceneSpriteBankSpec,
+    fileData: Uint8Array,
+    options?: SceneSpriteExtractOptions,
+): SceneSprite[] {
     const source = fileData.slice(bank.offset, bank.offset + bank.size);
-    const expandedBank = buildExpandedBank(source);
+    const expandedBank = buildExpandedBank(source, options);
     const references = new Map<number, SceneSpriteReference[]>();
 
     for (let rootIndex = 1; rootIndex < ROOT_COUNT; rootIndex++) {
-        if ((ROOT_FLAGS[rootIndex] & 0x07) >= 2) {
-            continue;
-        }
-        const variantTableOffset = readWord(expandedBank, rootIndex * 2);
-        if (variantTableOffset < 0 || variantTableOffset + FANOUT * 2 > expandedBank.length) {
+        const variantTableOffset = readPtr32(expandedBank, rootIndex * PTR_SIZE);
+        if (variantTableOffset <= 0 || variantTableOffset + FANOUT * PTR_SIZE > expandedBank.length) {
             continue;
         }
         for (let variantIndex = 0; variantIndex < FANOUT; variantIndex++) {
-            const recordOffset = readWord(expandedBank, variantTableOffset + variantIndex * 2);
+            const recordOffset = readPtr32(expandedBank, variantTableOffset + variantIndex * PTR_SIZE);
             const reference = { rootIndex, variantIndex };
             const existing = references.get(recordOffset);
             if (existing) {
@@ -601,4 +648,76 @@ export function extractSceneSprites(bank: SceneSpriteBankSpec, fileData: Uint8Ar
 
 export function renderSceneSpritePng(sprite: SceneSprite, palette: readonly number[] = createDefaultPalette()): Uint8Array {
     return generateIndexedPng(sprite.indexedPixels, palette, sprite.width, sprite.height, false, 0);
+}
+
+export interface SceneSpriteSourceRow {
+    readonly rowIndex: number;
+    readonly pointer: number;
+    readonly lengthWord: number;
+    readonly activeWidth: number;
+}
+
+export interface SceneSpriteSourceInfo {
+    readonly spriteId: number;
+    readonly width: number;
+    readonly height: number;
+    readonly ptrsOffset: number;
+    readonly lensOffset: number;
+    readonly word3: number;
+    readonly rows: readonly SceneSpriteSourceRow[];
+}
+
+export function getSceneSpriteSourceInfo(bank: SceneSpriteBankSpec, fileData: Uint8Array, spriteId: number): SceneSpriteSourceInfo {
+    const source = fileData.slice(bank.offset, bank.offset + bank.size);
+    const recOff = spriteId * 8;
+    if (recOff + 8 > source.length) {
+        throw new Error(`Sprite id ${spriteId} descriptor out of range.`);
+    }
+    const w0 = readWord(source, recOff);
+    const width = w0 & 0xFF;
+    const height = (w0 >> 8) & 0xFF;
+    const ptrsOffset = readWord(source, recOff + 2);
+    const lensOffset = readWord(source, recOff + 4);
+    const word3 = readWord(source, recOff + 6);
+    const rows: SceneSpriteSourceRow[] = [];
+    for (let j = 0; j < height; j++) {
+        const pointer = readWord(source, ptrsOffset + j * 2);
+        const lengthWord = readWord(source, lensOffset + j * 2);
+        rows.push({ rowIndex: j, pointer, lengthWord, activeWidth: lengthWord & 0x3F });
+    }
+    return { spriteId, width, height, ptrsOffset, lensOffset, word3, rows };
+}
+
+export function replaceSceneSpriteSourcePixels(
+    bank: SceneSpriteBankSpec,
+    dat: Uint8Array,
+    spriteId: number,
+    indexedPixels: Uint8Array,
+    width: number,
+    height: number,
+): { ok: true; bytesWritten: number } | { ok: false; reason: string } {
+    const source = dat.slice(bank.offset, bank.offset + bank.size);
+    const info = getSceneSpriteSourceInfo(bank, dat, spriteId);
+    if (info.width !== width || info.height !== height) {
+        return { ok: false, reason: `Sprite ${spriteId} is ${info.width}x${info.height}; replacement must be ${info.width}x${info.height}.` };
+    }
+    if (indexedPixels.length !== width * height) {
+        return { ok: false, reason: `Pixel data must be ${width * height} bytes.` };
+    }
+
+    let bytesWritten = 0;
+    for (const row of info.rows) {
+        const m = row.activeWidth;
+        const pad = (width - m) >> 1;
+        const srcRow = row.rowIndex * width;
+        const dstOff = bank.offset + row.pointer;
+        if (dstOff + m > dat.length) {
+            return { ok: false, reason: `Row ${row.rowIndex} points outside DAT.` };
+        }
+        for (let i = 0; i < m; i++) {
+            dat[dstOff + i] = indexedPixels[srcRow + pad + i] ?? 0;
+        }
+        bytesWritten += m;
+    }
+    return { ok: true, bytesWritten };
 }
