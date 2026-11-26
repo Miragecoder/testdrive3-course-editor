@@ -33,7 +33,7 @@ import {
     type WritableMapEntityFields,
 } from '@shared/map-inspection';
 import { LoadPrimaryLutMode, LoadRemapTable, LoadTrailerTable, WeatherMode, indexForSkyFog, lookupPair } from '@shared/color';
-import { paletteColor } from '@shared/palette';
+import { pal, paletteColor } from '@shared/palette';
 import { LoadObjects, maps } from '@shared/objects';
 import { files, loadFiles } from '@shared/files';
 import {
@@ -77,8 +77,10 @@ import {
     decodeSceneImageSlot,
     encodeSceneImageSlot,
     getSceneImageSlots,
+    getScenePaletteSlots,
     swapScene01LandscapeSetsAandC,
     type SceneImageSlot,
+    type ScenePaletteSlot,
 } from '@shared/scene-dat-images';
 import {
     applyPaletteLayer,
@@ -174,6 +176,35 @@ const sceneImageFeedback = requiredElement<HTMLParagraphElement>('scene-image-fe
 const sceneGenStartInput = requiredElement<HTMLInputElement>('scene-gen-start');
 const sceneGenDestInput = requiredElement<HTMLInputElement>('scene-gen-dest');
 const sceneImageGenerateButton = requiredElement<HTMLButtonElement>('scene-image-generate');
+const scenePaletteSelect = requiredElement<HTMLSelectElement>('scene-palette-select');
+const scenePaletteGrid = requiredElement<HTMLDivElement>('scene-palette-grid');
+const scenePaletteSelectedLabel = requiredElement<HTMLSpanElement>('scene-palette-selected-label');
+const scenePaletteSelectedSwatch = requiredElement<HTMLSpanElement>('scene-palette-selected-swatch');
+const scenePaletteIndexInput = requiredElement<HTMLInputElement>('scene-palette-index');
+const scenePaletteHexInput = requiredElement<HTMLInputElement>('scene-palette-hex');
+const scenePaletteRInput = requiredElement<HTMLInputElement>('scene-palette-r');
+const scenePaletteGInput = requiredElement<HTMLInputElement>('scene-palette-g');
+const scenePaletteBInput = requiredElement<HTMLInputElement>('scene-palette-b');
+const scenePalettePickerInput = requiredElement<HTMLInputElement>('scene-palette-picker');
+const scenePaletteApplyButton = requiredElement<HTMLButtonElement>('scene-palette-apply');
+const scenePaletteResetColorButton = requiredElement<HTMLButtonElement>('scene-palette-reset-color');
+const scenePaletteResetPaletteButton = requiredElement<HTMLButtonElement>('scene-palette-reset-palette');
+const scenePaletteFeedback = requiredElement<HTMLParagraphElement>('scene-palette-feedback');
+const materialRemapGrid = requiredElement<HTMLDivElement>('material-remap-grid');
+const materialRemapSelectedLabel = requiredElement<HTMLSpanElement>('material-remap-selected-label');
+const materialRemapSelectedSwatch = requiredElement<HTMLSpanElement>('material-remap-selected-swatch');
+const materialRemapIndexInput = requiredElement<HTMLInputElement>('material-remap-index');
+const materialRemapWordInput = requiredElement<HTMLInputElement>('material-remap-word');
+const materialRemapLeftInput = requiredElement<HTMLInputElement>('material-remap-left');
+const materialRemapRightInput = requiredElement<HTMLInputElement>('material-remap-right');
+const materialRemapLeftPicker = requiredElement<HTMLInputElement>('material-remap-left-picker');
+const materialRemapRightPicker = requiredElement<HTMLInputElement>('material-remap-right-picker');
+const materialRemapApplyButton = requiredElement<HTMLButtonElement>('material-remap-apply');
+const materialRemapResetEntryButton = requiredElement<HTMLButtonElement>('material-remap-reset-entry');
+const materialRemapResetTableButton = requiredElement<HTMLButtonElement>('material-remap-reset-table');
+const materialRemapShowAllCheckbox = requiredElement<HTMLInputElement>('material-remap-show-all');
+const materialRemapFilterNote = requiredElement<HTMLParagraphElement>('material-remap-filter-note');
+const materialRemapFeedback = requiredElement<HTMLParagraphElement>('material-remap-feedback');
 const sceneSpriteModeSelect = requiredElement<HTMLSelectElement>('scene-sprite-mode');
 const sceneSpriteSelect = requiredElement<HTMLSelectElement>('scene-sprite-select');
 const sceneSpritePreview = requiredElement<HTMLCanvasElement>('scene-sprite-preview');
@@ -226,6 +257,7 @@ let originalData: Uint8Array | null = null;
 let workingData: Uint8Array | null = null;
 let originalLstData: Uint8Array | null = null;
 let workingLstData: Uint8Array | null = null;
+// DATAC.DAT (OTWCOL) is shared/global; loaded read-only for previews.
 let lstSourceFilename = 'SCENE01.LST';
 let selectedCell: { x: number; y: number } | null = null;
 let hoveredCell: { x: number; y: number } | null = null;
@@ -249,6 +281,10 @@ let inversionOriginalLaneBankSource = '';
 let inversionOriginalLaneBankApproximate = false;
 let pendingSceneImageReplaceAutoFit = false;
 const sceneImageOverrides = new Map<string, Uint8Array>();
+let selectedScenePaletteId: string | null = null;
+let selectedScenePaletteColorIndex: number | null = null;
+let selectedMaterialRemapIndex: number | null = null;
+let showAllMaterialRemapEntries = false;
 let sceneSprites: SceneSprite[] = [];
 let sceneSpritesBankId: string | null = null;
 let sceneSpritesMode: 'raw' | 'alias' = 'raw';
@@ -742,7 +778,427 @@ function renderSceneImagePreview(slot: SceneImageSlot): void {
     }
 }
 
+const OTWCOL_OFFSET = 0x00495;
+const OTWCOL_SIZE = 336;
+
+function syncOtwcolStaticPalette(): void {
+    const datac = files.datac;
+    if (!datac) return;
+    for (let i = 0; i < 112; i++) {
+        const off = OTWCOL_OFFSET + i * 3;
+        const base = (16 + i) * 3;
+        pal[base] = vga6ToRgb8(datac[off] ?? 0);
+        pal[base + 1] = vga6ToRgb8(datac[off + 1] ?? 0);
+        pal[base + 2] = vga6ToRgb8(datac[off + 2] ?? 0);
+    }
+}
+
+function getScenePaletteCourseId(): 'SCENE01' | 'SCENE02' | null {
+    if (courseId === 'SCENE01' || courseId === 'SCENE02') return courseId;
+    if (inversionApplied) return 'SCENE01';
+    return null;
+}
+
+function getActivePaletteSlots(): ScenePaletteSlot[] {
+    const id = getScenePaletteCourseId();
+    return id ? getScenePaletteSlots(id) : [];
+}
+
+function selectedScenePaletteSlot(): ScenePaletteSlot | null {
+    const slots = getActivePaletteSlots();
+    if (slots.length === 0) return null;
+    return slots.find(s => s.id === (selectedScenePaletteId ?? scenePaletteSelect.value)) ?? slots[0] ?? null;
+}
+
+function readScenePaletteVga6(dat: Uint8Array, slot: ScenePaletteSlot, colorIndex: number): [number, number, number] {
+    const i = Math.max(0, Math.min(111, colorIndex));
+    const off = slot.offset + i * 3;
+    return [
+        Math.max(0, Math.min(63, dat[off] ?? 0)),
+        Math.max(0, Math.min(63, dat[off + 1] ?? 0)),
+        Math.max(0, Math.min(63, dat[off + 2] ?? 0)),
+    ];
+}
+
+function writeScenePaletteVga6(dat: Uint8Array, slot: ScenePaletteSlot, colorIndex: number, rgb6: [number, number, number]): void {
+    const i = Math.max(0, Math.min(111, colorIndex));
+    const off = slot.offset + i * 3;
+    dat[off] = Math.max(0, Math.min(63, rgb6[0] | 0));
+    dat[off + 1] = Math.max(0, Math.min(63, rgb6[1] | 0));
+    dat[off + 2] = Math.max(0, Math.min(63, rgb6[2] | 0));
+}
+
+function vga6ToRgb8(v: number): number {
+    return Math.max(0, Math.min(255, Math.max(0, Math.min(63, v | 0)) * 4));
+}
+
+function rgb8ToVga6(v: number): number {
+    return Math.max(0, Math.min(63, Math.round(Math.max(0, Math.min(255, v)) / 4)));
+}
+
+function vga6ToHex(rgb6: [number, number, number]): string {
+    const toHex = (v: number) => vga6ToRgb8(v).toString(16).padStart(2, '0');
+    return `#${toHex(rgb6[0])}${toHex(rgb6[1])}${toHex(rgb6[2])}`;
+}
+
+function hexToVga6(hex: string): [number, number, number] | null {
+    const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return [rgb8ToVga6((n >> 16) & 0xff), rgb8ToVga6((n >> 8) & 0xff), rgb8ToVga6(n & 0xff)];
+}
+
+function setScenePaletteFeedback(message: string, error = false): void {
+    scenePaletteFeedback.textContent = message;
+    scenePaletteFeedback.classList.toggle('error', error);
+}
+
+function syncPaletteSideEffects(): void {
+    const sceneSlot = selectedSceneImageSlot();
+    if (sceneSlot) renderSceneImagePreview(sceneSlot);
+}
+
+function renderScenePaletteGrid(): void {
+    scenePaletteGrid.replaceChildren();
+    const slot = selectedScenePaletteSlot();
+    if (!workingData || !slot) return;
+    for (let i = 0; i < 112; i++) {
+        const vgaIndex = 16 + i;
+        const [r, g, b] = readScenePaletteVga6(workingData, slot, i);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'scene-palette-swatch';
+        if (selectedScenePaletteColorIndex === i) btn.classList.add('selected');
+        btn.title = `Index ${vgaIndex} (${i}) — ${vga6ToHex([r, g, b])}`;
+        btn.style.background = vga6ToHex([r, g, b]);
+        btn.dataset.colorIndex = String(i);
+        btn.addEventListener('click', () => {
+            selectedScenePaletteColorIndex = i;
+            renderScenePaletteGrid();
+            updateScenePaletteEditor();
+        });
+        scenePaletteGrid.append(btn);
+    }
+}
+
+function updateScenePaletteEditor(): void {
+    const slot = selectedScenePaletteSlot();
+    const colorIndex = selectedScenePaletteColorIndex;
+    const disabled = !workingData || !slot || colorIndex === null;
+    scenePaletteIndexInput.disabled = disabled;
+    scenePaletteHexInput.disabled = disabled;
+    scenePaletteRInput.disabled = disabled;
+    scenePaletteGInput.disabled = disabled;
+    scenePaletteBInput.disabled = disabled;
+    scenePalettePickerInput.disabled = disabled;
+    if (disabled) {
+        scenePaletteSelectedLabel.textContent = 'Select a color';
+        scenePaletteSelectedSwatch.style.background = 'transparent';
+        scenePaletteIndexInput.value = '';
+        scenePaletteHexInput.value = '';
+        scenePaletteRInput.value = '';
+        scenePaletteGInput.value = '';
+        scenePaletteBInput.value = '';
+        scenePalettePickerInput.value = '#000000';
+        scenePaletteApplyButton.disabled = true;
+        scenePaletteResetColorButton.disabled = true;
+        return;
+    }
+    const [r, g, b] = readScenePaletteVga6(workingData, slot, colorIndex);
+    const hex = vga6ToHex([r, g, b]);
+    const vgaIndex = 16 + colorIndex;
+    scenePaletteSelectedLabel.textContent = `${slot.id} · slot ${vgaIndex} (${colorIndex})`;
+    scenePaletteSelectedSwatch.style.background = hex;
+    scenePaletteIndexInput.value = String(vgaIndex);
+    scenePaletteHexInput.value = hex;
+    scenePaletteRInput.value = String(r);
+    scenePaletteGInput.value = String(g);
+    scenePaletteBInput.value = String(b);
+    scenePalettePickerInput.value = hex;
+    scenePaletteApplyButton.disabled = false;
+    scenePaletteResetColorButton.disabled = !originalData;
+}
+
+function refreshScenePaletteUI(): void {
+    const { working } = { working: workingData };
+    scenePaletteSelect.replaceChildren();
+    setScenePaletteFeedback('');
+
+    const slots = getActivePaletteSlots();
+    if (!working || slots.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Not available for this course';
+        scenePaletteSelect.append(opt);
+        scenePaletteSelect.disabled = true;
+        selectedScenePaletteId = null;
+        selectedScenePaletteColorIndex = null;
+        scenePaletteResetPaletteButton.disabled = true;
+        renderScenePaletteGrid();
+        updateScenePaletteEditor();
+        return;
+    }
+
+    scenePaletteSelect.disabled = slots.length <= 1;
+    for (const slot of slots) {
+        const opt = document.createElement('option');
+        opt.value = slot.id;
+        opt.textContent = `${slot.id} · ${slot.description}`;
+        scenePaletteSelect.append(opt);
+    }
+    const selected = slots.find(s => s.id === selectedScenePaletteId) ?? slots[0] ?? null;
+    selectedScenePaletteId = selected?.id ?? null;
+    if (selectedScenePaletteId) scenePaletteSelect.value = selectedScenePaletteId;
+    if (selectedScenePaletteColorIndex === null) selectedScenePaletteColorIndex = 0;
+    scenePaletteResetPaletteButton.disabled = !originalData;
+    renderScenePaletteGrid();
+    updateScenePaletteEditor();
+}
+
+function applyScenePaletteEditorColor(): void {
+    const slot = selectedScenePaletteSlot();
+    const colorIndex = selectedScenePaletteColorIndex;
+    if (!workingData || !slot || colorIndex === null) return;
+    const fromHex = hexToVga6(scenePaletteHexInput.value);
+    const r = scenePaletteRInput.value !== '' ? Number(scenePaletteRInput.value) : NaN;
+    const g = scenePaletteGInput.value !== '' ? Number(scenePaletteGInput.value) : NaN;
+    const b = scenePaletteBInput.value !== '' ? Number(scenePaletteBInput.value) : NaN;
+    const rgb6: [number, number, number] = Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
+        ? [Math.max(0, Math.min(63, r)), Math.max(0, Math.min(63, g)), Math.max(0, Math.min(63, b))]
+        : (fromHex ?? [0, 0, 0]);
+    writeScenePaletteVga6(workingData, slot, colorIndex, rgb6);
+    setScenePaletteFeedback(`Updated ${slot.id} slot ${16 + colorIndex} to ${vga6ToHex(rgb6)}.`);
+    renderScenePaletteGrid();
+    updateScenePaletteEditor();
+    updateStatus();
+    syncPaletteSideEffects();
+}
+
+function resetScenePaletteColor(): void {
+    const slot = selectedScenePaletteSlot();
+    const colorIndex = selectedScenePaletteColorIndex;
+    if (!workingData || !originalData || !slot || colorIndex === null) return;
+    const originalColor = readScenePaletteVga6(originalData, slot, colorIndex);
+    writeScenePaletteVga6(workingData, slot, colorIndex, originalColor);
+    setScenePaletteFeedback(`Reset ${slot.id} slot ${16 + colorIndex}.`);
+    renderScenePaletteGrid();
+    updateScenePaletteEditor();
+    updateStatus();
+    syncPaletteSideEffects();
+}
+
+function resetScenePalette(): void {
+    const slot = selectedScenePaletteSlot();
+    if (!workingData || !originalData || !slot) return;
+    workingData.set(originalData.subarray(slot.offset, slot.offset + slot.size), slot.offset);
+    setScenePaletteFeedback(`Reset ${slot.description}.`);
+    renderScenePaletteGrid();
+    updateScenePaletteEditor();
+    updateStatus();
+    syncPaletteSideEffects();
+}
+
+function getVgaIndexHex(index: number): string {
+    const idx = Math.max(0, Math.min(255, index | 0));
+    const base = idx * 3;
+    const r = (pal[base] ?? 0) & 0xff;
+    const g = (pal[base + 1] ?? 0) & 0xff;
+    const b = (pal[base + 2] ?? 0) & 0xff;
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+function getVgaIndexCss(index: number): string {
+    const idx = Math.max(0, Math.min(255, index | 0));
+    if (idx >= 16 && idx <= 127 && files.datac) {
+        const otwcol = idx - 16;
+        const off = OTWCOL_OFFSET + otwcol * 3;
+        const r = vga6ToRgb8(files.datac[off] ?? 0);
+        const g = vga6ToRgb8(files.datac[off + 1] ?? 0);
+        const b = vga6ToRgb8(files.datac[off + 2] ?? 0);
+        return `rgb(${r},${g},${b})`;
+    }
+    const c = paletteColor(idx);
+    return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`;
+}
+
+function setMaterialRemapFeedback(message: string, error = false): void {
+    materialRemapFeedback.textContent = message;
+    materialRemapFeedback.classList.toggle('error', error);
+}
+
+function getMaterialRemapComparison(): { data: Uint8Array; mapOffset: number; label: string } | null {
+    const leg = Number(legSelect.value);
+    if (!Number.isInteger(leg) || leg < 0 || leg >= 5) return null;
+    const otherId: 'SCENE01' | 'SCENE02' = courseId === 'SCENE01' ? 'SCENE02' : 'SCENE01';
+    const otherData = otherId === 'SCENE01' ? files.scene01 : files.scene02;
+    if (!otherData) return null;
+    const mapOffset = COURSE_LAYOUTS[otherId].mapOffsets[leg];
+    return { data: otherData, mapOffset, label: `${otherId} leg ${leg + 1}` };
+}
+
+function getVisibleMaterialRemapIndices(): number[] {
+    const all = Array.from({ length: 256 }, (_, i) => i);
+    if (showAllMaterialRemapEntries || !workingData) return all;
+    const cmp = getMaterialRemapComparison();
+    if (!cmp) return all;
+    const mapOffset = selectedMapOffset();
+    const visible = all.filter(i => readRemapEntry(workingData, mapOffset, i) !== readRemapEntry(cmp.data, cmp.mapOffset, i));
+    return visible.length > 0 ? visible : all;
+}
+
+function renderMaterialRemapGrid(): void {
+    materialRemapGrid.replaceChildren();
+    if (!workingData) return;
+    const mapOffset = selectedMapOffset();
+    const visible = getVisibleMaterialRemapIndices();
+    for (const i of visible) {
+        const entry = readRemapEntry(workingData, mapOffset, i);
+        const left = entry & 0xFF;
+        const right = (entry >>> 8) & 0xFF;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'scene-palette-swatch';
+        if (((i >>> 4) & 0xF) === (i & 0xF)) btn.classList.add('diagonal');
+        if (selectedMaterialRemapIndex === i) btn.classList.add('selected');
+        btn.title = `0x${i.toString(16).toUpperCase().padStart(2, '0')} = ${left.toString().padStart(3, '0')}, ${right.toString().padStart(3, '0')} (0x${entry.toString(16).toUpperCase().padStart(4, '0')})`;
+        btn.style.background = `linear-gradient(90deg, ${getVgaIndexCss(left)} 50%, ${getVgaIndexCss(right)} 50%)`;
+        btn.addEventListener('click', () => {
+            selectedMaterialRemapIndex = i;
+            renderMaterialRemapGrid();
+            updateMaterialRemapEditor();
+        });
+        materialRemapGrid.append(btn);
+    }
+}
+
+function updateMaterialRemapEditor(): void {
+    const idx = selectedMaterialRemapIndex;
+    const disabled = !workingData || idx === null;
+    materialRemapIndexInput.disabled = disabled;
+    materialRemapWordInput.disabled = disabled;
+    materialRemapLeftInput.disabled = disabled;
+    materialRemapRightInput.disabled = disabled;
+    materialRemapLeftPicker.disabled = disabled;
+    materialRemapRightPicker.disabled = disabled;
+    materialRemapApplyButton.disabled = disabled;
+    materialRemapResetEntryButton.disabled = disabled || !originalData;
+    if (disabled || !workingData || idx === null) {
+        materialRemapSelectedLabel.textContent = 'Select an entry';
+        materialRemapSelectedSwatch.style.background = 'transparent';
+        materialRemapIndexInput.value = '';
+        materialRemapWordInput.value = '';
+        materialRemapLeftInput.value = '';
+        materialRemapRightInput.value = '';
+        materialRemapLeftPicker.value = '#000000';
+        materialRemapRightPicker.value = '#000000';
+        return;
+    }
+    const mapOffset = selectedMapOffset();
+    const entry = readRemapEntry(workingData, mapOffset, idx);
+    const left = entry & 0xFF;
+    const right = (entry >>> 8) & 0xFF;
+    const isDiag = ((idx >>> 4) & 0xF) === (idx & 0xF);
+    materialRemapSelectedLabel.textContent = `Entry 0x${idx.toString(16).toUpperCase().padStart(2, '0')} (${idx})${isDiag ? ' · diagonal/base' : ''}`;
+    materialRemapSelectedSwatch.style.background = `linear-gradient(90deg, ${getVgaIndexCss(left)} 50%, ${getVgaIndexCss(right)} 50%)`;
+    materialRemapIndexInput.value = `0x${idx.toString(16).toUpperCase().padStart(2, '0')}`;
+    materialRemapWordInput.value = entry.toString(16).toUpperCase().padStart(4, '0');
+    materialRemapLeftInput.value = String(left);
+    materialRemapRightInput.value = String(right);
+    materialRemapLeftPicker.value = getVgaIndexHex(left);
+    materialRemapRightPicker.value = getVgaIndexHex(right);
+}
+
+function refreshMaterialRemapUI(): void {
+    setMaterialRemapFeedback('');
+    materialRemapShowAllCheckbox.checked = showAllMaterialRemapEntries;
+    if (!workingData) {
+        materialRemapGrid.replaceChildren();
+        selectedMaterialRemapIndex = null;
+        materialRemapResetTableButton.disabled = true;
+        materialRemapFilterNote.textContent = '';
+        updateMaterialRemapEditor();
+        return;
+    }
+    if (selectedMaterialRemapIndex === null) selectedMaterialRemapIndex = fogRemapIndex(readFogSeed(workingData, selectedMapOffset()));
+    selectedMaterialRemapIndex = Math.max(0, Math.min(255, selectedMaterialRemapIndex));
+
+    const cmp = getMaterialRemapComparison();
+    const visible = getVisibleMaterialRemapIndices();
+    if (!visible.includes(selectedMaterialRemapIndex)) {
+        selectedMaterialRemapIndex = visible[0] ?? selectedMaterialRemapIndex;
+    }
+    if (showAllMaterialRemapEntries) {
+        materialRemapFilterNote.textContent = 'Showing all 256 remap entries. Warning: some entries may be shared by cars/objects or other scene visuals; changing them can have broad effects.';
+    } else if (cmp) {
+        materialRemapFilterNote.textContent = `Showing ${visible.length} entries differing from ${cmp.label} (${visible.length}/256). Hidden entries are identical in that comparison and may be safer to leave unchanged.`;
+    } else {
+        materialRemapFilterNote.textContent = 'Showing all 256 remap entries (no comparison scene available).';
+    }
+
+    materialRemapResetTableButton.disabled = !originalData;
+    renderMaterialRemapGrid();
+    updateMaterialRemapEditor();
+}
+
+function applyMaterialRemapEntry(): void {
+    const idx = selectedMaterialRemapIndex;
+    if (!workingData || idx === null) return;
+    const leftRaw = materialRemapLeftInput.value !== '' ? Number(materialRemapLeftInput.value) : NaN;
+    const rightRaw = materialRemapRightInput.value !== '' ? Number(materialRemapRightInput.value) : NaN;
+    const wordRaw = materialRemapWordInput.value.trim();
+    let left = Number.isFinite(leftRaw) ? leftRaw : 0;
+    let right = Number.isFinite(rightRaw) ? rightRaw : 0;
+    if (wordRaw !== '' && !Number.isFinite(leftRaw) && !Number.isFinite(rightRaw)) {
+        const parsed = parseInt(wordRaw, 16);
+        if (Number.isFinite(parsed)) { left = parsed & 0xFF; right = (parsed >>> 8) & 0xFF; }
+    } else if (wordRaw !== '' && (!Number.isFinite(leftRaw) || !Number.isFinite(rightRaw))) {
+        const parsed = parseInt(wordRaw, 16);
+        if (Number.isFinite(parsed)) {
+            if (!Number.isFinite(leftRaw)) left = parsed & 0xFF;
+            if (!Number.isFinite(rightRaw)) right = (parsed >>> 8) & 0xFF;
+        }
+    } else if (wordRaw !== '' && Number.isFinite(leftRaw) && Number.isFinite(rightRaw)) {
+        // left/right inputs take precedence; word is display-only in this case
+    }
+    left = Math.max(0, Math.min(255, left | 0));
+    right = Math.max(0, Math.min(255, right | 0));
+    const value = (left | (right << 8)) & 0xFFFF;
+    const mapOffset = selectedMapOffset();
+    writeRemapEntry(workingData, mapOffset, idx, value);
+    setMaterialRemapFeedback(`Updated remap 0x${idx.toString(16).toUpperCase().padStart(2, '0')} to 0x${value.toString(16).toUpperCase().padStart(4, '0')} (${left}, ${right}).`);
+    renderMaterialRemapGrid();
+    updateMaterialRemapEditor();
+    updateStatus();
+    refreshTilePreviews();
+}
+
+function resetMaterialRemapEntry(): void {
+    const idx = selectedMaterialRemapIndex;
+    if (!workingData || !originalData || idx === null) return;
+    const mapOffset = selectedMapOffset();
+    writeRemapEntry(workingData, mapOffset, idx, readRemapEntry(originalData, mapOffset, idx));
+    setMaterialRemapFeedback(`Reset remap entry 0x${idx.toString(16).toUpperCase().padStart(2, '0')}.`);
+    renderMaterialRemapGrid();
+    updateMaterialRemapEditor();
+    updateStatus();
+    refreshTilePreviews();
+}
+
+function resetMaterialRemapTable(): void {
+    if (!workingData || !originalData) return;
+    const mapOffset = selectedMapOffset();
+    for (let idx = 0; idx < 256; idx++) {
+        writeRemapEntry(workingData, mapOffset, idx, readRemapEntry(originalData, mapOffset, idx));
+    }
+    setMaterialRemapFeedback('Reset 3D material remap table for this map.');
+    renderMaterialRemapGrid();
+    updateMaterialRemapEditor();
+    updateStatus();
+    refreshTilePreviews();
+}
+
 function refreshSceneImageUI(): void {
+    refreshScenePaletteUI();
     const id = getSceneImageCourseId();
     sceneImageSlotSelect.replaceChildren();
     sceneImageFeedback.textContent = '';
@@ -1619,7 +2075,10 @@ function renderTilePalette(): void {
 }
 
 function refreshTilePreviews(): void {
-    if (!workingData) return;
+    if (!workingData) {
+        refreshMaterialRemapUI();
+        return;
+    }
     const offset = selectedMapOffset();
     LoadObjects(
         LoadRemapTable(workingData, offset),
@@ -1632,6 +2091,7 @@ function refreshTilePreviews(): void {
     renderGrid();
     refreshSceneImageUI();
     refreshSceneSpriteUI();
+    refreshMaterialRemapUI();
 }
 
 function setClusterFeedback(message: string, tone: 'ok' | 'warn' | 'error' | '' = ''): void {
@@ -3961,6 +4421,101 @@ sceneImageFileInput.addEventListener('change', async () => {
     }
     sceneImageFileInput.value = '';
 });
+scenePaletteSelect.addEventListener('change', () => {
+    selectedScenePaletteId = scenePaletteSelect.value || null;
+    selectedScenePaletteColorIndex = 0;
+    renderScenePaletteGrid();
+    updateScenePaletteEditor();
+});
+scenePalettePickerInput.addEventListener('input', () => {
+    const rgb6 = hexToVga6(scenePalettePickerInput.value);
+    if (!rgb6) return;
+    scenePaletteHexInput.value = scenePalettePickerInput.value;
+    scenePaletteRInput.value = String(rgb6[0]);
+    scenePaletteGInput.value = String(rgb6[1]);
+    scenePaletteBInput.value = String(rgb6[2]);
+});
+scenePaletteHexInput.addEventListener('change', () => {
+    const rgb6 = hexToVga6(scenePaletteHexInput.value);
+    if (!rgb6) return;
+    const hex = vga6ToHex(rgb6);
+    scenePaletteHexInput.value = hex;
+    scenePalettePickerInput.value = hex;
+    scenePaletteRInput.value = String(rgb6[0]);
+    scenePaletteGInput.value = String(rgb6[1]);
+    scenePaletteBInput.value = String(rgb6[2]);
+});
+for (const input of [scenePaletteRInput, scenePaletteGInput, scenePaletteBInput]) {
+    input.addEventListener('change', () => {
+        const r = Math.max(0, Math.min(63, Number(scenePaletteRInput.value) || 0));
+        const g = Math.max(0, Math.min(63, Number(scenePaletteGInput.value) || 0));
+        const b = Math.max(0, Math.min(63, Number(scenePaletteBInput.value) || 0));
+        const hex = vga6ToHex([r, g, b]);
+        scenePaletteHexInput.value = hex;
+        scenePalettePickerInput.value = hex;
+        scenePaletteRInput.value = String(r);
+        scenePaletteGInput.value = String(g);
+        scenePaletteBInput.value = String(b);
+    });
+}
+scenePaletteApplyButton.addEventListener('click', applyScenePaletteEditorColor);
+scenePaletteResetColorButton.addEventListener('click', resetScenePaletteColor);
+scenePaletteResetPaletteButton.addEventListener('click', resetScenePalette);
+
+function syncMaterialRemapWordFromBytes(): void {
+    const left = Math.max(0, Math.min(255, Number(materialRemapLeftInput.value) || 0));
+    const right = Math.max(0, Math.min(255, Number(materialRemapRightInput.value) || 0));
+    materialRemapLeftInput.value = String(left);
+    materialRemapRightInput.value = String(right);
+    materialRemapWordInput.value = ((left | (right << 8)) & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+}
+function syncMaterialRemapBytesFromWord(): void {
+    const parsed = parseInt(materialRemapWordInput.value.trim(), 16);
+    if (!Number.isFinite(parsed)) return;
+    const value = parsed & 0xFFFF;
+    materialRemapLeftInput.value = String(value & 0xFF);
+    materialRemapRightInput.value = String((value >>> 8) & 0xFF);
+    materialRemapWordInput.value = value.toString(16).toUpperCase().padStart(4, '0');
+}
+materialRemapLeftInput.addEventListener('change', () => {
+    syncMaterialRemapWordFromBytes();
+    materialRemapLeftPicker.value = getVgaIndexHex(Math.max(0, Math.min(255, Number(materialRemapLeftInput.value) || 0)));
+});
+materialRemapRightInput.addEventListener('change', () => {
+    syncMaterialRemapWordFromBytes();
+    materialRemapRightPicker.value = getVgaIndexHex(Math.max(0, Math.min(255, Number(materialRemapRightInput.value) || 0)));
+});
+materialRemapWordInput.addEventListener('change', () => {
+    syncMaterialRemapBytesFromWord();
+    materialRemapLeftPicker.value = getVgaIndexHex(Math.max(0, Math.min(255, Number(materialRemapLeftInput.value) || 0)));
+    materialRemapRightPicker.value = getVgaIndexHex(Math.max(0, Math.min(255, Number(materialRemapRightInput.value) || 0)));
+});
+materialRemapLeftPicker.addEventListener('input', () => {
+    const rgb = hexToVga6(materialRemapLeftPicker.value);
+    if (!rgb) return;
+    const [r6, g6, b6] = rgb;
+    const idx = nearestPaletteIndex(r6 * 4, g6 * 4, b6 * 4, pal);
+    materialRemapLeftInput.value = String(idx);
+    syncMaterialRemapWordFromBytes();
+    materialRemapLeftPicker.value = getVgaIndexHex(idx);
+});
+materialRemapRightPicker.addEventListener('input', () => {
+    const rgb = hexToVga6(materialRemapRightPicker.value);
+    if (!rgb) return;
+    const [r6, g6, b6] = rgb;
+    const idx = nearestPaletteIndex(r6 * 4, g6 * 4, b6 * 4, pal);
+    materialRemapRightInput.value = String(idx);
+    syncMaterialRemapWordFromBytes();
+    materialRemapRightPicker.value = getVgaIndexHex(idx);
+});
+materialRemapApplyButton.addEventListener('click', applyMaterialRemapEntry);
+materialRemapResetEntryButton.addEventListener('click', resetMaterialRemapEntry);
+materialRemapResetTableButton.addEventListener('click', resetMaterialRemapTable);
+materialRemapShowAllCheckbox.addEventListener('change', () => {
+    showAllMaterialRemapEntries = materialRemapShowAllCheckbox.checked;
+    refreshMaterialRemapUI();
+});
+
 sceneSpriteModeSelect.addEventListener('change', () => {
     refreshSceneSpriteUI();
 });
@@ -4040,6 +4595,7 @@ const editorReady = (async () => {
     }
     sharedLaneBank = parseLaneBank(files.datab.subarray(LANE_BANK_OFFSET, LANE_BANK_OFFSET + LANE_BANK_SIZE));
     sharedObjectBankData = files.datab.slice(OBJECT_BANK_OFFSET, OBJECT_BANK_OFFSET + OBJECT_BANK_SIZE);
+    syncOtwcolStaticPalette();
     await loadBuiltInCourse(courseId);
 })();
 

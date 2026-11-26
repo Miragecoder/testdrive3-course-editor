@@ -18,6 +18,7 @@ export interface SceneImageSlot {
 }
 
 export interface ScenePaletteSlot {
+    id: string;
     offset: number;
     size: number;
     description: string;
@@ -45,8 +46,24 @@ export const SCENE02_IMAGE_SLOTS: SceneImageSlot[] = [
     { id: 'landF', offset: 0x322E0, size: 0x00F6B, width: 320, height: 19, description: 'Landscape F (sky, set 3)', pixelBase: 0, paletteOffset: 0x2F9B4 },
 ];
 
+export const SCENE01_PALETTE_SLOTS: ScenePaletteSlot[] = [
+    { id: 'A', offset: 0x12378, size: 336, description: 'Palette A (set 1, landA/landB)' },
+    { id: 'B', offset: 0x1E451, size: 336, description: 'Palette B (set 2, landC/landD)' },
+    { id: 'C', offset: 0x257EA, size: 336, description: 'Palette C (set 3, landE/landF)' },
+];
+
+export const SCENE02_PALETTE_SLOTS: ScenePaletteSlot[] = [
+    { id: 'A', offset: 0x236C7, size: 336, description: 'Palette A (set 1, landA/landB)' },
+    { id: 'B', offset: 0x2A4F8, size: 336, description: 'Palette B (set 2, landC/landD)' },
+    { id: 'C', offset: 0x2F9B4, size: 336, description: 'Palette C (set 3, landE/landF)' },
+];
+
 export function getSceneImageSlots(courseId: 'SCENE01' | 'SCENE02'): SceneImageSlot[] {
     return courseId === 'SCENE01' ? SCENE01_IMAGE_SLOTS : SCENE02_IMAGE_SLOTS;
+}
+
+export function getScenePaletteSlots(courseId: 'SCENE01' | 'SCENE02'): ScenePaletteSlot[] {
+    return courseId === 'SCENE01' ? SCENE01_PALETTE_SLOTS : SCENE02_PALETTE_SLOTS;
 }
 
 export function decodeSceneImageSlot(dat: Uint8Array, slot: SceneImageSlot): Uint8Array {

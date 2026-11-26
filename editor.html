@@ -312,6 +312,75 @@
                             </section>
 
                             <section class="panel">
+                                <h2>Palettes <span class="panel-scope">Course / scene</span></h2>
+                                <p class="subtle">Edit the scene-local 112-color VGA palettes (A/B/C, slots 16–127, 6-bit RGB) used by land/scorecard UI bitmaps in SCENE01/SCENE02. The global 3D world palette (OTWCOL in DATAC.DAT) is shared and not edited here; use <strong>3D material remap</strong> for per-map 3D color differences.</p>
+                                <label>
+                                    Palette
+                                    <select id="scene-palette-select"></select>
+                                </label>
+                                <div id="scene-palette-grid" class="scene-palette-grid" aria-label="Scene palette colors"></div>
+                                <div class="scene-palette-editor">
+                                    <div class="scene-palette-selected">
+                                        <span id="scene-palette-selected-label" class="subtle">Select a color</span>
+                                        <span id="scene-palette-selected-swatch" class="scene-palette-swatch scene-palette-swatch-large" aria-hidden="true"></span>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>Index <small>16–127</small><input id="scene-palette-index" type="text" readonly></label>
+                                        <label>Hex <small>RGB</small><input id="scene-palette-hex" type="text" inputmode="text" spellcheck="false" placeholder="#rrggbb"></label>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>R <small>0–63</small><input id="scene-palette-r" type="number" min="0" max="63" step="1"></label>
+                                        <label>G <small>0–63</small><input id="scene-palette-g" type="number" min="0" max="63" step="1"></label>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>B <small>0–63</small><input id="scene-palette-b" type="number" min="0" max="63" step="1"></label>
+                                        <label>Picker <small>8-bit</small><input id="scene-palette-picker" type="color" value="#000000"></label>
+                                    </div>
+                                </div>
+                                <div class="button-row button-row-wrap" style="margin-top:8px;">
+                                    <button id="scene-palette-apply" type="button">Apply color</button>
+                                    <button id="scene-palette-reset-color" type="button" class="secondary">Reset color</button>
+                                    <button id="scene-palette-reset-palette" type="button" class="secondary">Reset palette</button>
+                                </div>
+                                <p id="scene-palette-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                            </section>
+
+                            <section class="panel">
+                                <h2>3D material remap <span class="panel-scope">Leg / map</span></h2>
+                                <p class="subtle">Edits the per-map color/material remap table at <code>map+0x1F27</code> (256 entries × 2 bytes). The 3D polygon decoder uses this table to map material colors to VGA palette-index pairs; diagonal entries (<code>0x00,0x11,...,0xFF</code>) are common base-material entries. This is the same table family Sky &amp; Horizon touches, but that panel only edits the fog-selected entry.</p>
+                                <label class="checkbox-label">
+                                    <input id="material-remap-show-all" type="checkbox">
+                                    Show all remap entries
+                                </label>
+                                <p id="material-remap-filter-note" class="subtle"></p>
+                                <div id="material-remap-grid" class="scene-palette-grid material-remap-grid" aria-label="3D material remap entries"></div>
+                                <div class="scene-palette-editor">
+                                    <div class="scene-palette-selected">
+                                        <span id="material-remap-selected-label" class="subtle">Select an entry</span>
+                                        <span id="material-remap-selected-swatch" class="scene-palette-swatch scene-palette-swatch-large" aria-hidden="true"></span>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>Index <small>0x00–0xFF</small><input id="material-remap-index" type="text" readonly></label>
+                                        <label>Word <small>hex</small><input id="material-remap-word" type="text" inputmode="text" spellcheck="false" placeholder="AABB"></label>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>Left <small>0–255</small><input id="material-remap-left" type="number" min="0" max="255" step="1"></label>
+                                        <label>Right <small>0–255</small><input id="material-remap-right" type="number" min="0" max="255" step="1"></label>
+                                    </div>
+                                    <div class="horizon-grid">
+                                        <label>Left color <small>nearest VGA</small><input id="material-remap-left-picker" type="color" value="#000000"></label>
+                                        <label>Right color <small>nearest VGA</small><input id="material-remap-right-picker" type="color" value="#000000"></label>
+                                    </div>
+                                </div>
+                                <div class="button-row button-row-wrap" style="margin-top:8px;">
+                                    <button id="material-remap-apply" type="button">Apply entry</button>
+                                    <button id="material-remap-reset-entry" type="button" class="secondary">Reset entry</button>
+                                    <button id="material-remap-reset-table" type="button" class="secondary">Reset table</button>
+                                </div>
+                                <p id="material-remap-feedback" class="route-editor-feedback" aria-live="polite"></p>
+                            </section>
+
+                            <section class="panel">
                                 <h2>Scene UI bitmaps <span class="panel-scope">Course / scene</span></h2>
                                 <p class="subtle">Drop-in replace: decode → edit externally → upload indexed image matching the slot palette. Scene image replacements (including title/icon and landA–F landscapes) are stored as overrides and recomposed into the DAT+LST on export, so they can exceed the original slot size. For title/icon you can also generate from text.</p>
                                 <label>
