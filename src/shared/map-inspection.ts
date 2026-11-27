@@ -247,3 +247,78 @@ export function writeOpponentRouteScript(
         break;
     }
 }
+
+function entityArrayBase(index: number): number {
+    return MAP_ENTITY_LAYOUT.flags + index * MAP_ENTITY_LAYOUT.fieldStride;
+}
+
+export function addMapEntity(
+    data: Uint8Array,
+    mapOffset: number,
+    defaults?: Partial<WritableMapEntityFields>,
+): number {
+    validateMap(data, mapOffset);
+
+    const collisionCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, 'Collision entity count');
+    if (collisionCount >= MAP_ENTITY_LAYOUT.maxEntities) {
+        throw new RangeError(`Cannot add entity: maximum of ${MAP_ENTITY_LAYOUT.maxEntities} entity records reached.`);
+    }
+
+    const slot = collisionCount;
+    const offset = slot * 2;
+    for (let i = 0; i < 13; i++) {
+        writeWord(data, mapOffset + entityArrayBase(i) + offset, 0, `Entity ${slot} array ${i}`);
+    }
+
+    const entity: WritableMapEntityFields = {
+        flags: defaults?.flags ?? 0,
+        x: defaults?.x ?? 0,
+        z: defaults?.z ?? 0,
+        y: defaults?.y ?? 0,
+        heading: defaults?.heading ?? 0,
+        velocity: defaults?.velocity ?? 0,
+        cell: defaults?.cell ?? 0,
+        waypoint: defaults?.waypoint ?? 0,
+    };
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.flags + offset, entity.flags, `Entity ${slot} flags`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.z + offset, entity.z, `Entity ${slot} Z`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.x + offset, entity.x, `Entity ${slot} X`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.y + offset, entity.y, `Entity ${slot} Y`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.heading + offset, entity.heading, `Entity ${slot} heading`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.velocity + offset, entity.velocity, `Entity ${slot} velocity`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.cell + offset, entity.cell, `Entity ${slot} cell`);
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.waypoint + offset, entity.waypoint, `Entity ${slot} waypoint`);
+
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, collisionCount + 1, 'Collision entity count');
+    return slot;
+}
+
+export function removeMapEntity(data: Uint8Array, mapOffset: number, slot: number): void {
+    validateMap(data, mapOffset);
+
+    const collisionCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, 'Collision entity count');
+    const aiCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.ai, 'AI entity count');
+    const lodCount = readWord(data, mapOffset + MAP_ENTITY_LAYOUT.lod, 'LOD entity count');
+    if (!Number.isInteger(slot) || slot < 0 || slot >= collisionCount) {
+        throw new RangeError(`Entity slot must be between 0 and ${Math.max(collisionCount - 1, 0)}.`);
+    }
+
+    for (let i = slot; i < collisionCount - 1; i++) {
+        const src = (i + 1) * 2;
+        const dst = i * 2;
+        for (let a = 0; a < 13; a++) {
+            const base = mapOffset + entityArrayBase(a);
+            writeWord(data, base + dst, readWord(data, base + src, `Entity ${i + 1} array ${a}`), `Entity ${i} array ${a}`);
+        }
+    }
+
+    const last = (collisionCount - 1) * 2;
+    for (let a = 0; a < 13; a++) {
+        writeWord(data, mapOffset + entityArrayBase(a) + last, 0, `Entity ${collisionCount - 1} array ${a}`);
+    }
+
+    const nextCollision = collisionCount - 1;
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.collision, nextCollision, 'Collision entity count');
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.ai, Math.min(aiCount, nextCollision), 'AI entity count');
+    writeWord(data, mapOffset + MAP_ENTITY_LAYOUT.lod, Math.min(lodCount, nextCollision), 'LOD entity count');
+}

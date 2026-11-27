@@ -101,29 +101,6 @@
                                 <div id="tile-palette" class="tile-palette" aria-label="Tile previews"></div>
                             </section>
 
-                            <section class="panel">
-                                <h2>Tile clusters / prefabs</h2>
-                                <p class="subtle">Stamp multi-cell tile patterns in one action. Clusters are tile-only (tile ID, rotation, elevation). Select an anchor cell, Shift+click to define the opposite corner, capture the region, then arm a stamp and click the map to place it.</p>
-                                <label>
-                                    Cluster
-                                    <select id="cluster-select" aria-label="Tile cluster"></select>
-                                </label>
-                                <div class="button-row button-row-wrap">
-                                    <button id="cluster-set-anchor" type="button" class="secondary">Set anchor</button>
-                                    <button id="cluster-capture" type="button" class="secondary">Capture anchor→selected</button>
-                                </div>
-                                <p id="cluster-selection-info" class="subtle">Anchor: none. Select a cell and use Set anchor, then Shift+click another cell to define a capture region.</p>
-                                <label class="paint-toggle mode-toggle">
-                                    <input id="cluster-stamp-mode" type="checkbox">
-                                    Arm cluster stamp
-                                </label>
-                                <p class="subtle">When armed, hovering shows a ghost preview and clicking places the cluster as a single undoable stamp. Out-of-bounds stamps are blocked.</p>
-                                <div class="button-row button-row-wrap">
-                                    <button id="cluster-stamp-undo" type="button" class="secondary" disabled>Undo last stamp</button>
-                                    <button id="cluster-delete" type="button" class="secondary">Delete cluster</button>
-                                </div>
-                                <p id="cluster-feedback" class="route-editor-feedback" aria-live="polite"></p>
-                            </section>
                         </section>
 
                         <section class="toolbox-mode" id="toolbox-mode-entities" role="tabpanel" aria-labelledby="toolbox-tab-entities" data-mode="entities" hidden>
@@ -131,40 +108,27 @@
 
                             <section class="panel">
                                 <h2>Placed entities</h2>
-                                <label class="paint-toggle mode-toggle">
-                                    <input id="show-entities" type="checkbox" checked>
-                                    Show entities on map
-                                </label>
                                 <p id="entity-summary" class="subtle">Loading entity records…</p>
                                 <select id="entity-select" class="entity-select" size="8" aria-label="Placed entities"></select>
-                                <p class="subtle">Select an entity from the list or map marker. Right-click, double-click, or press Enter on a marker/cell to open properties. Slot 0 is likely the player start; models 02/03 are the two opponents.</p>
+                                <div class="button-row button-row-wrap">
+                                    <button id="entity-add" type="button" class="secondary">Add entity</button>
+                                    <button id="entity-remove" type="button" class="secondary">Remove selected</button>
+                                </div>
+                                <p class="subtle">Select an entity from the list or map marker. Right-click, double-click, or press Enter on a marker/cell to open properties. Slot 0 is likely the player start; models 02/03 are the two opponents. Add creates a new record at the selected cell (max 160); remove shifts later slots down.</p>
                             </section>
 
                             <section class="panel">
-                                <h2>Roadside snap</h2>
-                                <p class="subtle">Snap entity placement to road-adjacent anchors. Use with "Move entity on click" to place the selected entity at a clicked cell, or apply snap to the selected entity's current cell.</p>
+                                <h2>Entity placement</h2>
+                                <p class="subtle">Move the selected entity by dragging its marker, or use map click/cell actions. Height can be auto-adjusted from the ground probe at the target position.</p>
                                 <label class="paint-toggle mode-toggle">
-                                    <input id="entity-snap-enabled" type="checkbox" checked>
-                                    Snap to roadside anchors
-                                </label>
-                                <label>
-                                    Snap preset
-                                    <select id="entity-snap-preset">
-                                        <option value="nearest-lane">Nearest lane waypoint</option>
-                                        <option value="cell-center">Cell center</option>
-                                        <option value="roadside-n">Roadside north</option>
-                                        <option value="roadside-e">Roadside east</option>
-                                        <option value="roadside-s">Roadside south</option>
-                                        <option value="roadside-w">Roadside west</option>
-                                        <option value="free">Free (no snap)</option>
-                                    </select>
+                                    <input id="entity-auto-elevation" type="checkbox" checked>
+                                    Auto-adjust height to cell elevation
                                 </label>
                                 <label class="paint-toggle mode-toggle">
                                     <input id="entity-move-on-click" type="checkbox">
                                     Move selected entity on map click
                                 </label>
                                 <div class="button-row button-row-wrap">
-                                    <button id="entity-snap-apply" type="button" class="secondary">Snap selected entity</button>
                                     <button id="entity-move-to-cell" type="button" class="secondary">Move to selected cell</button>
                                 </div>
                                 <p id="entity-snap-feedback" class="route-editor-feedback" aria-live="polite"></p>
@@ -192,11 +156,6 @@
 
                             <section class="panel">
                                 <h2>Route markers</h2>
-                                <div class="mode-toggle-group" aria-label="Route map overlays">
-                                    <label class="paint-toggle mode-toggle"><input id="show-route-1" type="checkbox" checked> Show AI route 1</label>
-                                    <label class="paint-toggle mode-toggle"><input id="show-route-2" type="checkbox" checked> Show AI route 2</label>
-                                    <label class="paint-toggle mode-toggle"><input id="show-waypoints" type="checkbox"> Show waypoints</label>
-                                </div>
                                 <p class="subtle">Each leg stores three route-trigger tile IDs in the map header. When the player is on a tile with one of these IDs, the game sets the route index used by the scorecard and per-route records.</p>
                                 <div class="route-marker-controls">
                                     <label>
@@ -311,39 +270,6 @@
                                 <p id="horizon-feedback" class="route-editor-feedback" aria-live="polite"></p>
                             </section>
 
-                            <section class="panel">
-                                <h2>Palettes <span class="panel-scope">Course / scene</span></h2>
-                                <p class="subtle">Edit the scene-local 112-color VGA palettes (A/B/C, slots 16–127, 6-bit RGB) used by land/scorecard UI bitmaps in SCENE01/SCENE02. The global 3D world palette (OTWCOL in DATAC.DAT) is shared and not edited here; use <strong>3D material remap</strong> for per-map 3D color differences.</p>
-                                <label>
-                                    Palette
-                                    <select id="scene-palette-select"></select>
-                                </label>
-                                <div id="scene-palette-grid" class="scene-palette-grid" aria-label="Scene palette colors"></div>
-                                <div class="scene-palette-editor">
-                                    <div class="scene-palette-selected">
-                                        <span id="scene-palette-selected-label" class="subtle">Select a color</span>
-                                        <span id="scene-palette-selected-swatch" class="scene-palette-swatch scene-palette-swatch-large" aria-hidden="true"></span>
-                                    </div>
-                                    <div class="horizon-grid">
-                                        <label>Index <small>16–127</small><input id="scene-palette-index" type="text" readonly></label>
-                                        <label>Hex <small>RGB</small><input id="scene-palette-hex" type="text" inputmode="text" spellcheck="false" placeholder="#rrggbb"></label>
-                                    </div>
-                                    <div class="horizon-grid">
-                                        <label>R <small>0–63</small><input id="scene-palette-r" type="number" min="0" max="63" step="1"></label>
-                                        <label>G <small>0–63</small><input id="scene-palette-g" type="number" min="0" max="63" step="1"></label>
-                                    </div>
-                                    <div class="horizon-grid">
-                                        <label>B <small>0–63</small><input id="scene-palette-b" type="number" min="0" max="63" step="1"></label>
-                                        <label>Picker <small>8-bit</small><input id="scene-palette-picker" type="color" value="#000000"></label>
-                                    </div>
-                                </div>
-                                <div class="button-row button-row-wrap" style="margin-top:8px;">
-                                    <button id="scene-palette-apply" type="button">Apply color</button>
-                                    <button id="scene-palette-reset-color" type="button" class="secondary">Reset color</button>
-                                    <button id="scene-palette-reset-palette" type="button" class="secondary">Reset palette</button>
-                                </div>
-                                <p id="scene-palette-feedback" class="route-editor-feedback" aria-live="polite"></p>
-                            </section>
 
                             <section class="panel">
                                 <h2>3D material remap <span class="panel-scope">Leg / map</span></h2>
@@ -490,15 +416,40 @@
                             <button id="map-zoom-out" type="button" class="secondary zoom-btn" aria-label="Zoom out" title="Zoom out (-)">−</button>
                             <label class="zoom-control" for="map-zoom" title="Map zoom">
                                 <span class="sr-only">Zoom</span>
-                                <input id="map-zoom" type="range" min="12" max="108" step="2" value="18">
+                                <input id="map-zoom" type="range" min="12" max="216" step="2" value="18">
                                 <span id="map-zoom-value">100%</span>
                             </label>
                             <button id="map-zoom-in" type="button" class="secondary zoom-btn" aria-label="Zoom in" title="Zoom in (+)">+</button>
                             <button id="map-zoom-fit" type="button" class="secondary zoom-btn" title="Fit map to view (F)">Fit</button>
                             <button id="map-zoom-reset" type="button" class="secondary zoom-btn" title="Reset zoom to 100% (0)">100%</button>
+                            <button id="map-overlays-toggle" type="button" class="secondary zoom-btn" title="Toggle all map overlays on/off">Overlays</button>
                             <label class="zoom-control" title="Show tile IDs on the map">
                                 <input id="show-tile-ids" type="checkbox">
                                 <span>IDs</span>
+                            </label>
+                            <label class="zoom-control" title="Show tile connectivity/elevation warnings">
+                                <input id="show-tile-warnings" type="checkbox">
+                                <span>Warnings</span>
+                            </label>
+                            <label class="zoom-control" title="Show entities on map">
+                                <input id="show-entities" type="checkbox" checked>
+                                <span>Entities</span>
+                            </label>
+                            <label class="zoom-control" title="Show AI route 1">
+                                <input id="show-route-1" type="checkbox" checked>
+                                <span>Route 1</span>
+                            </label>
+                            <label class="zoom-control" title="Show AI route 2">
+                                <input id="show-route-2" type="checkbox" checked>
+                                <span>Route 2</span>
+                            </label>
+                            <label class="zoom-control" title="Show route markers">
+                                <input id="show-route-markers" type="checkbox" checked>
+                                <span>Markers</span>
+                            </label>
+                            <label class="zoom-control" title="Show waypoints">
+                                <input id="show-waypoints" type="checkbox">
+                                <span>Waypoints</span>
                             </label>
                         </div>
                     </div>
@@ -568,7 +519,7 @@
         </footer>
         <p class="notice">
             Inversion exports a DAT only; keep the existing SCENE03.LST and test on a copy. AI routes still need in-game validation.
-            Shortcuts: 1–4 toolbox modes, wheel zoom, Space/middle-drag pan, right-click properties, Enter open, Esc close, Ctrl/Cmd+Z undo cluster stamp.
+            Shortcuts: 1–4 toolbox modes, wheel zoom, Space/middle-drag pan, right-click properties, Enter open, Esc close.
         </p>
     </main>
     <script type="module" src="./src/browser/editor.ts"></script>
